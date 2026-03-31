@@ -455,7 +455,8 @@ document.querySelectorAll('.admin-tab').forEach(tab=>tab.onclick=()=>{
     if(tab.dataset.tab==='manage')renderAdminImages();
 });
 document.getElementById('searchInput').oninput=filterImages;
-document.getElementById('colorFilter').onchange=filterImagesdocument.getElementById('themeFilter').onchange=filterImages;
+document.getElementById('colorFilter').onchange=filterImages;
+document.getElementById('themeFilter').onchange=filterImages;
 document.getElementById('uploadBtn').onclick=submitUpload;
 // 先 ping 唤醒 Serverless，再加载数据
 fetch(API+'/health').catch(()=>{});
