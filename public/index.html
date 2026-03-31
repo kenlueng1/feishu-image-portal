@@ -157,6 +157,10 @@
                         <option value="品牌">品牌</option><option value="活动">活动</option>
                     </select>
                 </div>
+                <div class="form-group">
+                    <label class="form-label">预览图 URL（250×250，可不填，默认用原图）</label>
+                    <input type="url" class="form-input" id="uploadPreviewUrl" placeholder="如需单独设置预览图，请填入250×250图片链接">
+                </div>
                 <button class="btn btn-primary" id="uploadBtn" onclick="submitUpload()" style="width:100%;padding:14px" disabled>✅ 添加图片</button>
             </div>
         </div>
@@ -224,6 +228,9 @@
             </div>
             <div class="form-group"><label class="form-label">主题分类</label>
                 <select class="form-input" id="editTheme"><option value="">不设置</option><option value="促销">促销</option><option value="节日">节日</option><option value="产品">产品</option><option value="品牌">品牌</option><option value="活动">活动</option></select>
+            </div>
+            <div class="form-group"><label class="form-label">预览图 URL（250×250）</label>
+                <input type="url" class="form-input" id="editPreviewUrl" placeholder="如需单独设置预览图，请填入250×250图片链接">
             </div>
             <input type="hidden" id="editRecordId">
         </div>
@@ -373,6 +380,7 @@ async function submitUpload() {
     if (!name) { showToast('请填写图片名称', 'error'); return; }
     const color = document.getElementById('uploadColor').value;
     const theme = document.getElementById('uploadTheme').value;
+    const previewUrl = document.getElementById('uploadPreviewUrl').value.trim();
     const btn = document.getElementById('uploadBtn');
     btn.disabled = true;
     btn.textContent = '⏳ 上传中...';
@@ -382,6 +390,7 @@ async function submitUpload() {
     formData.append('name', name);
     if (color) formData.append('color', color);
     if (theme) formData.append('theme', theme);
+    if (previewUrl) formData.append('previewUrl', previewUrl);
 
     try {
         const res = await fetch(API + '/api/upload', { method: 'POST', body: formData });
@@ -392,6 +401,7 @@ async function submitUpload() {
             document.getElementById('uploadName').value = '';
             document.getElementById('uploadColor').value = '';
             document.getElementById('uploadTheme').value = '';
+            document.getElementById('uploadPreviewUrl').value = '';
             document.getElementById('uploadPreviewBox').innerHTML = `<div style="text-align:center"><div style="font-size:40px;margin-bottom:8px">📁</div><div style="color:var(--text-secondary);font-size:14px">点击选择图片文件</div><div style="color:var(--text-secondary);font-size:12px;margin-top:4px">支持 PNG、JPG、WebP</div></div>`;
             loadData();
         } else { showToast('上传失败: ' + data.error, 'error'); }
@@ -416,16 +426,14 @@ async function submitDownload() {
     const country = document.getElementById('downloadCountry').value;
     const id = document.getElementById('currentImageId').value;
     const imgName = document.getElementById('currentImageName').value;
-    const imgUrl = document.getElementById('currentImageUrl').value;
     if (!name || !date || !country) { showToast('请填写完整信息', 'error'); return; }
     try {
         await fetch(API + '/api/download', {
             method: 'POST', headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({imageId: id, imageName: imgName, name, date, country})
         });
-        const a = document.createElement('a');
-        a.href = imgUrl; a.download = imgName; a.target = '_blank';
-        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        // 通过后端代理下载原图
+        window.location.href = API + '/api/download-image/' + id + '?name=' + encodeURIComponent(imgName);
         closeModal('downloadModal');
         showToast('下载成功！', 'success');
         loadData();
@@ -439,6 +447,7 @@ function openEditModal(id) {
     document.getElementById('editName').value = img.name;
     document.getElementById('editColor').value = img.color;
     document.getElementById('editTheme').value = img.theme;
+    document.getElementById('editPreviewUrl').value = img.previewUrl || '';
     document.getElementById('editModal').classList.add('active');
 }
 async function saveEdit() {
@@ -446,10 +455,11 @@ async function saveEdit() {
     const name = document.getElementById('editName').value;
     const color = document.getElementById('editColor').value;
     const theme = document.getElementById('editTheme').value;
+    const previewUrl = document.getElementById('editPreviewUrl').value.trim();
     try {
         await fetch(API + '/api/images/' + id, {
             method: 'PUT', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({name, color, theme})
+            body: JSON.stringify({name, color, theme, previewUrl})
         });
         closeModal('editModal'); showToast('保存成功', 'success'); loadData();
     } catch(e) { showToast('保存失败', 'error'); }
