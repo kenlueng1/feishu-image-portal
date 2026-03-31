@@ -270,7 +270,10 @@ async function adminLogin(){
 // ── 数据（带自动重试）──
 async function loadData(retry=0){
     try{
-        const res=await fetch(API+'/api/images');
+        const controller=new AbortController();
+        const tid=setTimeout(()=>controller.abort(),8000);
+        const res=await fetch(API+'/api/images',{signal:controller.signal});
+        clearTimeout(tid);
         if(!res.ok) throw new Error('HTTP '+res.status);
         const data=await res.json();
         allImages=data.success?data.data:[];
@@ -278,12 +281,13 @@ async function loadData(retry=0){
         if(isAdmin)renderAdminImages();
     }catch(e){
         console.warn('加载失败:', e.message, '重试:', retry);
-        if(retry<3){
-            await new Promise(r=>setTimeout(r,2000));
+        if(retry<4){
+            document.getElementById('imagesGrid').innerHTML=`<div class="empty-state">⏳ 连接中，第${retry+1}次重试...</div>`;
+            await new Promise(r=>setTimeout(r,3000));
             await loadData(retry+1);
         }else{
-            // 显示后备图
-            renderStats();renderImages(allImages);updateFilters();
+            renderStats();renderImages([]);updateFilters();
+            document.getElementById('imagesGrid').innerHTML='<div class="empty-state">⚠️ 加载失败，请刷新页面重试</div>';
         }
     }
 }
@@ -453,7 +457,9 @@ document.querySelectorAll('.admin-tab').forEach(tab=>tab.onclick=()=>{
 document.getElementById('searchInput').oninput=filterImages;
 document.getElementById('colorFilter').onchange=filterImagesdocument.getElementById('themeFilter').onchange=filterImages;
 document.getElementById('uploadBtn').onclick=submitUpload;
-loadData();
+// 先 ping 唤醒 Serverless，再加载数据
+fetch(API+'/health').catch(()=>{});
+setTimeout(()=>loadData(), 300);
 </script>
 </body>
 </html>
