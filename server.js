@@ -13,9 +13,6 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ============================================================
-// 配置
-// ============================================================
 const CONFIG = {
     APP_ID: process.env.FEISHU_APP_ID || 'cli_a941923f1a611ceb',
     APP_SECRET: process.env.FEISHU_APP_SECRET || 'pu4EkjA8mEDKiuoQyBnHLwk8wYYzKUXs',
@@ -26,51 +23,31 @@ const CONFIG = {
     ADMIN_PASSWORD_HASH: crypto.createHash('sha256').update('a3481616244.').digest('hex'),
 };
 
-// ============================================================
-// Token 缓存
-// ============================================================
 let tokenCache = { token: null, expiresAt: 0 };
 
 async function getTenantToken() {
-    if (tokenCache.token && Date.now() < tokenCache.expiresAt - 60000) {
-        return tokenCache.token;
-    }
+    if (tokenCache.token && Date.now() < tokenCache.expiresAt - 60000) return tokenCache.token;
     const res = await axios.post('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
-        app_id: CONFIG.APP_ID,
-        app_secret: CONFIG.APP_SECRET
+        app_id: CONFIG.APP_ID, app_secret: CONFIG.APP_SECRET
     });
     tokenCache.token = res.data.tenant_access_token;
     tokenCache.expiresAt = Date.now() + res.data.expire * 1000;
     return tokenCache.token;
 }
 
-// ============================================================
-// 管理员验证
-// ============================================================
 app.post('/api/admin-login', (req, res) => {
-    const { password } = req.body;
-    const hash = crypto.createHash('sha256').update(password || '').digest('hex');
-    if (hash === CONFIG.ADMIN_PASSWORD_HASH) {
-        res.json({ success: true });
-    } else {
-        res.status(401).json({ success: false, message: '密码错误' });
-    }
+    const hash = crypto.createHash('sha256').update(req.body.password || '').digest('hex');
+    res.json(hash === CONFIG.ADMIN_PASSWORD_HASH ? { success: true } : { success: false });
 });
 
-// ============================================================
-// 图片列表
-// ============================================================
+// ── 图片列表 ──
 app.get('/api/images', async (req, res) => {
     try {
         const token = await getTenantToken();
-        let allItems = [];
-        let pageToken = '';
-
+        let allItems = [], pageToken = '';
         do {
             const url = `https://open.feishu.cn/open-apis/bitable/v1/apps/${CONFIG.BITABLE_IMAGES_TOKEN}/tables/${CONFIG.TABLE_IMAGES}/records?page_size=100${pageToken ? '&page_token=' + pageToken : ''}`;
-            const response = await axios.get(url, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
+            const response = await axios.get(url, { headers: { Authorization: `Bearer ${token}` } });
             const data = response.data.data;
             allItems = allItems.concat(data.items || []);
             pageToken = data.has_more ? data.page_token : '';
@@ -78,28 +55,27 @@ app.get('/api/images', async (req, res) => {
 
         const images = allItems.map(item => {
             const f = item.fields;
-            let imageUrl = '';
-            // 优先用「预览图URL」显示
-            if (f['预览图URL']) {
-                imageUrl = f['预览图URL'];
-            } else if (f['图片URL'] && typeof f['图片URL'] === 'string') {
-                imageUrl = f['图片URL'];
-            } else if (Array.isArray(f['图片URL']) && f['图片URL'].length > 0) {
-                imageUrl = f['图片URL'][0].url || f['图片URL'][0].tmp_url || '';
-            }
+            // 预览图：优先「预览图URL」，其次「图片URL」
+            let previewUrl = '';
+            if (f['预览图URL'] && typeof f['预览图URL'] === 'string') previewUrl = f['预览图URL'];
+            else if (f['图片URL'] && typeof f['图片URL'] === 'string') previewUrl = f['图片URL'];
+            else if (Array.isArray(f['图片URL']) && f['图片URL'].length > 0) previewUrl = f['图片URL'][0].url || f['图片URL'][0].tmp_url || '';
+            
+            // 设计图URL
+            let designUrl = '';
+            if (f['设计图URL'] && typeof f['设计图URL'] === 'string') designUrl = f['设计图URL'];
+            else if (f['图片URL'] && typeof f['图片URL'] === 'string') designUrl = f['图片URL'];
 
             const downloads = parseInt(f['下载次数'] || 0) || 0;
             let countries = [];
-            if (f['已下载国家']) {
-                countries = String(f['已下载国家']).split(',').map(s => s.trim()).filter(Boolean);
-            }
+            if (f['已下载国家']) countries = String(f['已下载国家']).split(',').map(s => s.trim()).filter(Boolean);
 
             return {
                 id: item.record_id,
                 name: f['图片名称'] || '',
-                url: imageUrl,
-                rawUrl: f['图片URL'] || '',        // 原图URL（用于下载）
-                previewUrl: f['预览图URL'] || '',  // 预览图URL
+                url: previewUrl || designUrl,
+                previewUrl,
+                designUrl,
                 color: f['颜色'] || '',
                 theme: f['主题'] || '',
                 downloads,
@@ -114,61 +90,46 @@ app.get('/api/images', async (req, res) => {
     }
 });
 
-// ============================================================
-// 代理下载（解决飞书临时URL跳转HTML问题，返回原文件）
-// ============================================================
-app.get('/api/download-image/:id', async (req, res) => {
+// ── 代理下载设计图（750×700原文件）──
+app.get('/api/download-design/:id', async (req, res) => {
     try {
         const { id } = req.params;
         const token = await getTenantToken();
 
-        // 获取图片URL
         const imgRes = await axios.get(
             `https://open.feishu.cn/open-apis/bitable/v1/apps/${CONFIG.BITABLE_IMAGES_TOKEN}/tables/${CONFIG.TABLE_IMAGES}/records/${id}`,
             { headers: { Authorization: `Bearer ${token}` } }
         );
-
         const f = imgRes.data.data.record.fields;
-        let imageUrl = f['图片URL'] || '';
-        let imageName = f['图片名称'] || '图片';
+        let imageUrl = f['设计图URL'] || f['图片URL'] || '';
+        let imageName = f['图片名称'] || '设计图';
 
-        // 如果是飞书临时URL，转为永久下载链接
-        if (imageUrl.includes('tmp_download_url') || imageUrl.includes('feishu.cn')) {
-            // 提取 file_token
-            let fileToken = '';
-            const match = imageUrl.match(/file\/([^/?#]+)/) || imageUrl.match(/media\/([^/?#]+)/);
-            if (match) fileToken = match[1];
+        // 提取飞书file_token
+        const match = imageUrl.match(/file\/([^/?#]+)/) || imageUrl.match(/media\/([^/?#]+)/) || imageUrl.match(/box\/([^/?#]+)/);
+        const fileToken = match ? match[1] : '';
 
-            if (fileToken) {
-                // 使用飞书永久CDN下载接口
-                imageUrl = `https://internal-api-drive-stream.feishu.cn/space/api/box/stream/download/v2/box/${fileToken}/?height=5120&width=2880&pwd=&x-tt-disable=1`;
-            }
+        if (fileToken && imageUrl.includes('feishu.cn')) {
+            imageUrl = `https://internal-api-drive-stream.feishu.cn/space/api/box/stream/download/v2/box/${fileToken}/?height=5120&width=2880&pwd=&x-tt-disable=1`;
         }
 
-        if (!imageUrl) {
-            return res.status(404).send('图片不存在');
-        }
+        if (!imageUrl) return res.status(404).send('设计图不存在');
 
-        // 代理请求原图
         const imgResponse = await axios.get(imageUrl, {
             responseType: 'arraybuffer',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'User-Agent': 'Mozilla/5.0'
-            },
+            headers: { 'Authorization': `Bearer ${token}`, 'User-Agent': 'Mozilla/5.0' },
             maxRedirects: 5
         });
 
         const buffer = Buffer.from(imgResponse.data);
         const contentType = imgResponse.headers['content-type'] || 'image/jpeg';
+        const ext = contentType.includes('png') ? '.png' : '.jpg';
 
         res.set({
             'Content-Type': contentType,
-            'Content-Disposition': `attachment; filename="${encodeURIComponent(imageName)}.jpg")`,
+            'Content-Disposition': `attachment; filename="${encodeURIComponent(imageName + ext)}"`,
             'Content-Length': buffer.length,
             'Cache-Control': 'no-cache'
         });
-
         res.send(buffer);
     } catch (err) {
         console.error('代理下载失败:', err.message);
@@ -176,35 +137,21 @@ app.get('/api/download-image/:id', async (req, res) => {
     }
 });
 
-// ============================================================
-// 下载记录列表
-// ============================================================
+// ── 下载记录列表 ──
 app.get('/api/records', async (req, res) => {
     try {
         const token = await getTenantToken();
-        let allItems = [];
-        let pageToken = '';
-
+        let allItems = [], pageToken = '';
         do {
             const url = `https://open.feishu.cn/open-apis/bitable/v1/apps/${CONFIG.BITABLE_RECORDS_TOKEN}/tables/${CONFIG.TABLE_RECORDS}/records?page_size=100${pageToken ? '&page_token=' + pageToken : ''}`;
-            const response = await axios.get(url, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-            const data = response.data.data;
-            allItems = allItems.concat(data.items || []);
-            pageToken = data.has_more ? data.page_token : '';
+            const response = await axios.get(url, { headers: { Authorization: `Bearer ${token}` } });
+            allItems = allItems.concat(response.data.data.items || []);
+            pageToken = response.data.data.has_more ? response.data.data.page_token : '';
         } while (pageToken);
 
         const records = allItems.map(item => {
             const f = item.fields;
-            return {
-                id: item.record_id,
-                imageName: f['图片名称'] || '',
-                name: f['下载人'] || '',
-                date: f['上线时间'] || '',
-                country: f['所属国家'] || '',
-                downloadTime: f['下载时间'] || ''
-            };
+            return { id: item.record_id, imageName: f['图片名称'] || '', name: f['下载人'] || '', date: f['上线时间'] || '', country: f['所属国家'] || '', downloadTime: f['下载时间'] || '' };
         }).filter(r => r.name).reverse();
 
         res.json({ success: true, data: records });
@@ -214,36 +161,20 @@ app.get('/api/records', async (req, res) => {
     }
 });
 
-// ============================================================
-// 提交下载记录
-// ============================================================
+// ── 提交下载记录 ──
 app.post('/api/download', async (req, res) => {
     try {
         const token = await getTenantToken();
         const { imageId, imageName, name, date, country } = req.body;
-
-        if (!name || !date || !country || !imageId) {
-            return res.status(400).json({ success: false, error: '缺少必填字段' });
-        }
-
+        if (!name || !date || !country || !imageId) return res.status(400).json({ success: false, error: '缺少必填字段' });
         const now = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
 
-        // 写入下载记录
         await axios.post(
             `https://open.feishu.cn/open-apis/bitable/v1/apps/${CONFIG.BITABLE_RECORDS_TOKEN}/tables/${CONFIG.TABLE_RECORDS}/records`,
-            {
-                fields: {
-                    '图片名称': imageName,
-                    '下载人': name,
-                    '上线时间': date,
-                    '所属国家': country,
-                    '下载时间': now
-                }
-            },
+            { fields: { '图片名称': imageName, '下载人': name, '上线时间': date, '所属国家': country, '下载时间': now } },
             { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
         );
 
-        // 更新图片下载次数和已下载国家
         try {
             const imgRes = await axios.get(
                 `https://open.feishu.cn/open-apis/bitable/v1/apps/${CONFIG.BITABLE_IMAGES_TOKEN}/tables/${CONFIG.TABLE_IMAGES}/records/${imageId}`,
@@ -251,24 +182,14 @@ app.post('/api/download', async (req, res) => {
             );
             const fields = imgRes.data.data.record.fields;
             const currentDownloads = parseInt(fields['下载次数'] || 0) || 0;
-            const currentCountries = fields['已下载国家']
-                ? String(fields['已下载国家']).split(',').map(s => s.trim()).filter(Boolean)
-                : [];
+            const currentCountries = fields['已下载国家'] ? String(fields['已下载国家']).split(',').map(s => s.trim()).filter(Boolean) : [];
             if (!currentCountries.includes(country)) currentCountries.push(country);
-
             await axios.put(
                 `https://open.feishu.cn/open-apis/bitable/v1/apps/${CONFIG.BITABLE_IMAGES_TOKEN}/tables/${CONFIG.TABLE_IMAGES}/records/${imageId}`,
-                {
-                    fields: {
-                        '下载次数': String(currentDownloads + 1),
-                        '已下载国家': currentCountries.join(',')
-                    }
-                },
+                { fields: { '下载次数': String(currentDownloads + 1), '已下载国家': currentCountries.join(',') } },
                 { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
             );
-        } catch (e) {
-            console.warn('更新下载次数失败:', e.message);
-        }
+        } catch (e) { console.warn('更新下载次数失败:', e.message); }
 
         res.json({ success: true });
     } catch (err) {
@@ -277,56 +198,56 @@ app.post('/api/download', async (req, res) => {
     }
 });
 
-// ============================================================
-// 上传图片
-// ============================================================
-app.post('/api/upload', upload.single('file'), async (req, res) => {
+// ── 上传图片（预览图+设计图）──
+app.post('/api/upload', upload.fields([{ name: 'previewFile', maxCount: 1 }, { name: 'designFile', maxCount: 1 }]), async (req, res) => {
     try {
         const token = await getTenantToken();
-        const file = req.file;
-        const imageName = req.body.name || (file ? file.originalname.replace(/\.[^/.]+$/, '') : '未命名');
-        const color = req.body.color || '';
-        const theme = req.body.theme || '';
-        const previewUrl = req.body.previewUrl || '';  // 预览图URL
+        const { name, color, theme } = req.body;
+        const previewFile = req.files?.find(f => f.fieldname === 'previewFile');
+        const designFile = req.files?.find(f => f.fieldname === 'designFile');
 
-        if (!file) return res.status(400).json({ success: false, error: '没有文件' });
+        if (!previewFile && !designFile) return res.status(400).json({ success: false, error: '至少需要上传一张图片' });
 
-        // 上传原图到飞书云盘
-        const formData = new FormData();
-        formData.append('file_name', file.originalname);
-        formData.append('parent_type', 'bitable_file');
-        formData.append('parent_node', CONFIG.BITABLE_IMAGES_TOKEN);
-        formData.append('size', file.size.toString());
-        formData.append('file', file.buffer, {
-            filename: file.originalname,
-            contentType: file.mimetype
-        });
+        let previewUrl = '', designUrl = '';
 
-        const uploadRes = await axios.post(
-            'https://open.feishu.cn/open-apis/drive/v1/medias/upload_all',
-            formData,
-            { headers: { Authorization: `Bearer ${token}`, ...formData.getHeaders() } }
-        );
+        // 上传文件到飞书云盘获取CDN链接
+        async function uploadToFeishu(file, fname) {
+            if (!file) return '';
+            const formData = new FormData();
+            formData.append('file_name', file.originalname);
+            formData.append('parent_type', 'bitable_file');
+            formData.append('parent_node', CONFIG.BITABLE_IMAGES_TOKEN);
+            formData.append('size', file.size.toString());
+            formData.append('file', file.buffer, { filename: file.originalname, contentType: file.mimetype });
+            const upRes = await axios.post('https://open.feishu.cn/open-apis/drive/v1/medias/upload_all', formData, {
+                headers: { Authorization: `Bearer ${token}`, ...formData.getHeaders() }
+            });
+            const fileToken = upRes.data.data?.file_token;
+            if (!fileToken) return '';
+            return `https://internal-api-drive-stream.feishu.cn/space/api/box/stream/download/v2/box/${fileToken}/?height=5120&width=2880&pwd=&x-tt-disable=1`;
+        }
 
-        const fileToken = uploadRes.data.data?.file_token;
-        if (!fileToken) throw new Error('上传失败，未获取到 file_token');
+        previewUrl = await uploadToFeishu(previewFile, 'preview');
+        designUrl = await uploadToFeishu(designFile, 'design');
 
-        // 获取永久CDN下载链接
-        const cdnUrl = `https://internal-api-drive-stream.feishu.cn/space/api/box/stream/download/v2/box/${fileToken}/?height=5120&width=2880&pwd=&x-tt-disable=1`;
+        // 如果只有一个文件，预览和下载用同一个
+        if (!previewUrl && designUrl) previewUrl = designUrl;
+        if (!designUrl && previewUrl) designUrl = previewUrl;
 
-        // 写入多维表格（存原图CDN链接+预览图URL）
+        const fields = {
+            '图片名称': name || '未命名',
+            '颜色': color || '',
+            '主题': theme || '',
+            '下载次数': '0'
+        };
+        if (previewUrl) fields['预览图URL'] = previewUrl;
+        if (designUrl) fields['设计图URL'] = designUrl;
+        if (previewUrl && !designUrl) fields['图片URL'] = previewUrl;
+        else if (designUrl && !previewUrl) fields['图片URL'] = designUrl;
+
         await axios.post(
             `https://open.feishu.cn/open-apis/bitable/v1/apps/${CONFIG.BITABLE_IMAGES_TOKEN}/tables/${CONFIG.TABLE_IMAGES}/records`,
-            {
-                fields: {
-                    '图片名称': imageName,
-                    '图片URL': cdnUrl,          // 存原图CDN永久链接
-                    '预览图URL': previewUrl || cdnUrl, // 预览图（默认用原图）
-                    '颜色': color,
-                    '主题': theme,
-                    '下载次数': '0'
-                }
-            },
+            { fields },
             { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
         );
 
@@ -337,24 +258,17 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
     }
 });
 
-// ============================================================
-// 更新图片分类
-// ============================================================
+// ── 更新图片 ──
 app.put('/api/images/:id', async (req, res) => {
     try {
         const token = await getTenantToken();
         const { id } = req.params;
-        const { name, color, theme, previewUrl } = req.body;
-
-        const fields = { '图片名称': name, '颜色': color, '主题': theme };
-        if (previewUrl !== undefined) fields['预览图URL'] = previewUrl;
-
+        const { name, color, theme } = req.body;
         await axios.put(
             `https://open.feishu.cn/open-apis/bitable/v1/apps/${CONFIG.BITABLE_IMAGES_TOKEN}/tables/${CONFIG.TABLE_IMAGES}/records/${id}`,
-            { fields },
+            { fields: { '图片名称': name, '颜色': color, '主题': theme } },
             { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
         );
-
         res.json({ success: true });
     } catch (err) {
         console.error('更新失败:', err.response?.data || err.message);
@@ -362,12 +276,7 @@ app.put('/api/images/:id', async (req, res) => {
     }
 });
 
-// ============================================================
-// 健康检查
-// ============================================================
 app.get('/health', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`✅ 飞书图片资源中心已启动: http://localhost:${PORT}`);
-});
+app.listen(PORT, () => console.log(`✅ 飞书图片资源中心已启动: http://localhost:${PORT}`));
