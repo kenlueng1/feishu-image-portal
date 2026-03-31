@@ -267,15 +267,25 @@ async function adminLogin(){
     else{showToast('密码错误','error');}
 }
 
-// ── 数据 ──
-async function loadData(){
+// ── 数据（带自动重试）──
+async function loadData(retry=0){
     try{
         const res=await fetch(API+'/api/images');
+        if(!res.ok) throw new Error('HTTP '+res.status);
         const data=await res.json();
         allImages=data.success?data.data:[];
         renderStats();renderImages(allImages);updateFilters();
         if(isAdmin)renderAdminImages();
-    }catch(e){showToast('加载失败','error');}
+    }catch(e){
+        console.warn('加载失败:', e.message, '重试:', retry);
+        if(retry<3){
+            await new Promise(r=>setTimeout(r,2000));
+            await loadData(retry+1);
+        }else{
+            // 显示后备图
+            renderStats();renderImages(allImages);updateFilters();
+        }
+    }
 }
 async function loadRecords(){
     try{
