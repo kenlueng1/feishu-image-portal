@@ -248,15 +248,31 @@ app.put('/api/images/:id', async (req, res) => {
     try {
         const token = await getTenantToken();
         const { id } = req.params;
-        const { name, color, theme } = req.body;
+        const { name, theme } = req.body;
         await axios.put(
             `https://open.feishu.cn/open-apis/bitable/v1/apps/${CONFIG.BITABLE_IMAGES_TOKEN}/tables/${CONFIG.TABLE_IMAGES}/records/${id}`,
-            { fields: { '图片名称': name, '颜色': color, '主题': theme } },
+            { fields: { '图片名称': name, '主题': theme } },
             { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
         );
         res.json({ success: true });
     } catch (err) {
         console.error('更新失败:', err.response?.data || err.message);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// ── 删除图片 ──
+app.delete('/api/images/:id', async (req, res) => {
+    try {
+        const token = await getTenantToken();
+        const { id } = req.params;
+        await axios.delete(
+            `https://open.feishu.cn/open-apis/bitable/v1/apps/${CONFIG.BITABLE_IMAGES_TOKEN}/tables/${CONFIG.TABLE_IMAGES}/records/${id}`,
+            { headers: { Authorization: `Bearer ${token}` } }
+        );
+        res.json({ success: true });
+    } catch (err) {
+        console.error('删除失败:', err.response?.data || err.message);
         res.status(500).json({ success: false, error: err.message });
     }
 });
