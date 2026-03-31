@@ -277,6 +277,63 @@ app.delete('/api/images/:id', async (req, res) => {
     }
 });
 
+
+// ── 系统设置 ──
+app.get('/api/settings', async (req, res) => {
+    try {
+        const token = await getTenantToken();
+        // 查找设置记录
+        const listRes = await axios.get(
+            `https://open.feishu.cn/open-apis/bitable/v1/apps/${CONFIG.BITABLE_IMAGES_TOKEN}/tables/${CONFIG.TABLE_IMAGES}/records?filter=Equal("图片名称","__SYSTEM_SETTINGS__")`,
+            { headers: { Authorization: `Bearer ${token}` } }
+        );
+        const items = listRes.data.data?.items || [];
+        if (items.length === 0) return res.json({ success: true, title: '飞书图片资源中心', avatarUrl: '' });
+        
+        const f = items[0].fields;
+        res.json({ success: true, title: f['主题'] || '飞书图片资源中心', avatarUrl: f['设计图URL'] || '' });
+    } catch (err) {
+        console.error('获取设置失败:', err.message);
+        res.json({ success: true, title: '飞书图片资源中心', avatarUrl: '' });
+    }
+});
+
+app.post('/api/settings', upload.single('avatar'), async (req, res) => {
+    try {
+        const token = await getTenantToken();
+        const { title } = req.body;
+        
+        // 查找设置记录
+        const listRes = await axios.get(
+            `https://open.feishu.cn/open-apis/bitable/v1/apps/${CONFIG.BITABLE_IMAGES_TOKEN}/tables/${CONFIG.TABLE_IMAGES}/records?filter=Equal("图片名称","__SYSTEM_SETTINGS__")`,
+            { headers: { Authorization: `Bearer ${token}` } }
+        );
+        const items = listRes.data.data?.items || [];
+        if (items.length === 0) return res.status(404).json({ success: false, error: '未找到设置记录' });
+        
+        const recordId = items[0].record_id;
+        const fields = {};
+        if (title) fields['主题'] = title;
+        
+        // 如果上传了新头像
+        if (req.file) {
+            const avatarUrl = await uploadToCloudinary(req.file.buffer, req.file.mimetype, req.file.originalname);
+            fields['设计图URL'] = avatarUrl;
+        }
+        
+        await axios.put(
+            `https://open.feishu.cn/open-apis/bitable/v1/apps/${CONFIG.BITABLE_IMAGES_TOKEN}/tables/${CONFIG.TABLE_IMAGES}/records/${recordId}`,
+            { fields },
+            { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+        );
+        
+        res.json({ success: true, avatarUrl: fields['设计图URL'] || '' });
+    } catch (err) {
+        console.error('保存设置失败:', err.response?.data || err.message);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 app.get('/health', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
 
 const PORT = process.env.PORT || 3000;

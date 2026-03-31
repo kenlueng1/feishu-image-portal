@@ -108,7 +108,7 @@
 <body>
 <div class="container" id="app">
     <header class="header">
-        <div class="logo"><div class="logo-icon">F</div><span>飞书图片资源中心</span></div>
+        <div class="logo"><div class="logo-icon" id="siteLogoIcon">F</div><span id="siteTitle">飞书图片资源中心</span></div>
         <button class="admin-btn" id="adminToggleBtn" onclick="toggleAdmin()">⚙️ 管理员入口</button>
     </header>
 
@@ -133,6 +133,7 @@
             <button class="admin-tab active" data-tab="upload">📤 添加图片</button>
             <button class="admin-tab" data-tab="records">📋 下载记录</button>
             <button class="admin-tab" data-tab="manage">🖼️ 图片管理</button>
+            <button class="admin-tab" data-tab="settings">⚙️ 设置</button>
         </div>
         
         <!-- 上传面板 -->
@@ -183,6 +184,25 @@
         <!-- 图片管理 -->
         <div class="admin-panel" id="managePanel">
             <div class="images-grid" id="adminImagesGrid"></div>
+        </div>
+
+        <!-- 设置面板 -->
+        <div class="admin-panel" id="settingsPanel">
+            <div class="upload-form">
+                <h3>⚙️ 系统设置</h3>
+                <div class="form-group" style="text-align:center">
+                    <label class="form-label">网站头像</label>
+                    <div class="upload-box" id="avatarBox" onclick="document.getElementById('avatarInput').click()" style="width:100px;height:100px;border-radius:50%;margin:0 auto">
+                        <input type="file" id="avatarInput" accept="image/*" onchange="handleAvatarSelect(this.files[0])">
+                        <div id="avatarContent"><div class="upload-box-icon">👤</div></div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">网站名称</label>
+                    <input type="text" class="form-input" id="siteTitleInput" placeholder="请输入网站名称">
+                </div>
+                <button class="btn btn-primary" onclick="saveSettings()" style="width:100%;padding:14px">💾 保存设置</button>
+            </div>
         </div>
     </div>
 </div>
@@ -475,6 +495,39 @@ async function deleteImage(id){
     }catch(e){showToast('删除失败','error');}
 }
 
+// ── 设置 ──
+let avatarFile=null;
+function handleAvatarSelect(file){
+    avatarFile=file;
+    const box=document.getElementById('avatarBox');
+    const c=document.getElementById('avatarContent');
+    if(!file){c.innerHTML='<div class="upload-box-icon">👤</div>';return;}
+    const reader=new FileReader();
+    reader.onload=e=>{c.innerHTML='<img class="upload-box-preview" src="'+e.target.result+'" style="width:100%;height:100%;object-fit:cover;border-radius:50%">';};
+    reader.readAsDataURL(file);
+}
+async function saveSettings(){
+    const title=document.getElementById('siteTitleInput').value.trim();
+    if(!title&&!avatarFile){showToast('请填写网站名称或上传头像','error');return;}
+    const formData=new FormData();
+    if(title)formData.append('title',title);
+    if(avatarFile)formData.append('avatar',avatarFile);
+    try{
+        const res=await fetch(API+'/api/settings',{method:'POST',body:formData});
+        const data=await res.json();
+        if(data.success){
+            if(title)document.getElementById('siteTitle').textContent=title;
+            if(data.avatarUrl){
+                document.getElementById('siteLogoIcon').innerHTML='<img src="'+data.avatarUrl+'" style="width:100%;height:100%;object-fit:cover;border-radius:8px">';
+            }
+            showToast('保存成功！','success');
+        }else{showToast('保存失败','error');}
+    }catch(e){showToast('网络错误','error');}
+}
+function loadSettings(){
+    document.getElementById('siteTitleInput').value=document.getElementById('siteTitle').textContent;
+}
+
 // ── 工具 ──
 function closeModal(id){document.getElementById(id).classList.remove('active');}
 function showToast(msg,type){
@@ -494,6 +547,7 @@ document.querySelectorAll('.admin-tab').forEach(tab=>tab.onclick=()=>{
     document.getElementById(tab.dataset.tab+'Panel').classList.add('active');
     if(tab.dataset.tab==='records')loadRecords();
     if(tab.dataset.tab==='manage')renderAdminImages();
+    if(tab.dataset.tab==='settings')loadSettings();
 });
 document.getElementById('searchInput').oninput=filterImages;
 document.getElementById('themeFilter').onchange=filterImages;
