@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>飞书图片资源中心</title>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://lf1-cdn-tos.bytegoofy.com/goofy/lark/op/h5-js-sdk-1.5.16/index.umd.js"></script>
+    <style>
+        :root {--primary:#4F46E5;--primary-dark:#3730A3;--success:#10B981;--danger:#EF4444;--surface:#FFFFFF;--surface-elevated:#FAFAFA;--background:#F3F4F6;--text-primary:#111827;--text-secondary:#6B7280;--border:#E5E7EB;--shadow-md:0 4px 6px -1px rgba(0,0,0,0.1);--shadow-lg:0 10px 15px -3px rgba(0,0,0,0.1);--radius:12px}
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--background);color:var(--text-primary);min-height:100vh}
+        #loadingScreen{position:fixed;inset:0;background:white;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;gap:16px}
+        .spinner{width:48px;height:48px;border:4px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin .8s linear infinite}
+        @keyframes spin{to{transform:rotate(360deg)}}
+        .container{max-width:1400px;margin:0 auto;padding:24px}
+        .header{background:var(--surface);border-radius:var(--radius);padding:20px 32px;box-shadow:var(--shadow-md);margin-bottom:32px;display:flex;justify-content:space-between;align-items:center}
+        .logo{display:flex;align-items:center;gap:12px;font-size:22px;font-weight:700}
+        .logo-icon{width:44px;height:44px;background:linear-gradient(135deg,var(--primary),#818CF8);border-radius:8px;display:flex;align-items:center;justify-content:center;color:white;font-size:22px}
+        .user-info{display:flex;align-items:center;gap:12px}
+        .user-avatar{width:36px;height:36px;border-radius:50%;background:var(--primary);display:flex;align-items:center;justify-content:center;color:white;font-weight:600;font-size:14px}
+        .role-badge{padding:4px 10px;border-radius:12px;font-size:12px;font-weight:600}
+        .role-badge.admin{background:rgba(79,70,229,0.1);color:var(--primary)}
+        .role-badge.client{background:rgba(16,185,129,0.1);color:var(--success)}
+        .client-view,.admin-view,.login-view{display:none}
+        .client-view.active,.admin-view.active,.login-view.active{display:block}
+        .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:24px}
+        .stat-card{background:var(--surface);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow-md)}
+        .stat-icon{font-size:28px;margin-bottom:10px}
+        .stat-value{font-size:28px;font-weight:700}
+        .stat-label{font-size:13px;color:var(--text-secondary);margin-top:4px}
+        .toolbar{background:var(--surface);border-radius:var(--radius);padding:16px 20px;box-shadow:var(--shadow-md);margin-bottom:24px;display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+        .search-box{flex:1;min-width:220px;position:relative}
+        .search-box input{width:100%;padding:10px 14px 10px 38px;border:2px solid var(--border);border-radius:8px;font-size:14px;transition:all .2s}
+        .search-box input:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(79,70,229,0.1)}
+        .search-box::before{content:"🔍";position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:16px}
+        .filter-select{padding:10px 14px;border:2px solid var(--border);border-radius:8px;font-size:14px;background:var(--surface-elevated);cursor:pointer}
+        .filter-select:focus{outline:none;border-color:var(--primary)}
+        .images-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:20px}
+        .image-card{background:var(--surface);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow-md);transition:all .3s}
+        .image-card:hover{transform:translateY(-4px);box-shadow:var(--shadow-lg)}
+        .image-preview{position:relative;aspect-ratio:16/10;overflow:hidden;background:var(--surface-elevated)}
+        .image-preview img{width:100%;height:100%;object-fit:cover;transition:transform .3s}
+        .image-card:hover .image-preview img{transform:scale(1.05)}
+        .image-overlay{position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,0.7),transparent);opacity:0;transition:opacity .3s;display:flex;align-items:flex-end;justify-content:center;padding:16px}
+        .image-card:hover .image-overlay{opacity:1}
+        .dl-btn{background:white;color:var(--primary);border:none;padding:10px 20px;border-radius:6px;font-weight:600;cursor:pointer;transition:all .2s}
+        .dl-btn:hover{background:var(--primary);color:white}
+        .image-info{padding:16px}
+        .image-title{font-size:15px;font-weight:600;margin-bottom:10px}
+        .image-tags{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+        .tag{padding:3px 10px;border-radius:12px;font-size:12px;font-weight:500}
+        .tag.color{background:rgba(239,68,68,0.1);color:#DC2626}
+        .tag.theme{background:rgba(79,70,229,0.1);color:var(--primary)}
+        .image-stats{display:flex;justify-content:space-between;padding-top:12px;border-top:1px solid var(--border);font-size:13px}
+        .country-badges{display:flex;gap:4px;flex-wrap:wrap}
+        .country-badge{padding:2px 6px;background:var(--surface-elevated);border-radius:4px;font-size:11px;color:var(--text-secondary)}
+        .admin-tabs{display:flex;gap:8px;margin-bottom:24px;background:var(--surface);padding:8px;border-radius:var(--radius);box-shadow:var(--shadow-md)}
+        .admin-tab{flex:1;padding:12px;border:none;background:0 0;border-radius:6px;cursor:pointer;font-size:14px;font-weight:500;color:var(--text-secondary);transition:all .2s}
+        .admin-tab.active{background:var(--primary);color:white}
+        .admin-panel{display:none}
+        .admin-panel.active{display:block}
+        .upload-zone{background:var(--surface);border-radius:var(--radius);padding:48px;box-shadow:var(--shadow-md);border:2px dashed var(--border);text-align:center;cursor:pointer;transition:all .3s}
+        .upload-zone:hover{border-color:var(--primary)}
+        .upload-icon{font-size:48px;margin-bottom:16px}
+        .upload-title{font-size:18px;font-weight:600;margin-bottom:8px}
+        .upload-subtitle{color:var(--text-secondary);margin-bottom:20px}
+        .upload-btn{background:var(--primary);color:white;border:none;padding:12px 28px;border-radius:6px;font-weight:600;cursor:pointer;transition:all .2s}
+        .upload-btn:hover{background:var(--primary-dark)}
+        .table-wrap{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow-md);overflow:hidden}
+        .data-table{width:100%;border-collapse:collapse}
+        .data-table th{background:var(--surface-elevated);padding:12px 16px;text-align:left;font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;border-bottom:1px solid var(--border)}
+        .data-table td{padding:12px 16px;border-bottom:1px solid var(--border);font-size:14px}
+        .data-table tr:hover{background:var(--surface-elevated)}
+        .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);display:none;align-items:center;justify-content:center;z-index:1000;padding:20px}
+        .modal-overlay.active{display:flex}
+        .modal{background:var(--surface);border-radius:var(--radius);max-width:440px;width:100%;box-shadow:var(--shadow-lg);animation:slideIn .25s ease}
+        @keyframes slideIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+        .modal-header{padding:20px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border)}
+        .modal-title{font-size:17px;font-weight:700}
+        .modal-close{width:30px;height:30px;border:none;background:var(--surface-elevated);border-radius:50%;cursor:pointer;font-size:18px;transition:all .2s}
+        .modal-close:hover{background:var(--danger);color:white}
+        .modal-body{padding:20px}
+        .modal-footer{padding:16px 20px;display:flex;gap:10px;justify-content:flex-end;border-top:1px solid var(--border)}
+        .form-group{margin-bottom:14px}
+        .form-label{display:block;font-size:13px;font-weight:600;margin-bottom:6px}
+        .form-input{width:100%;padding:10px 12px;border:2px solid var(--border);border-radius:6px;font-size:14px;transition:all .2s}
+        .form-input:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(79,70,229,0.1)}
+        .btn{padding:10px 20px;border:none;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;transition:all .2s}
+        .btn-primary{background:var(--primary);color:white}
+        .btn-primary:hover{background:var(--primary-dark)}
+        .btn-secondary{background:var(--surface-elevated)}
+        .btn-secondary:hover{background:var(--border)}
+        .toast{position:fixed;bottom:20px;right:20px;background:var(--surface);padding:14px 20px;border-radius:8px;box-shadow:var(--shadow-lg);display:none;align-items:center;gap:10px;z-index:2000}
+        .toast.show{display:flex}
+        .toast.success{border-left:4px solid var(--success)}
+        .toast.error{border-left:4px solid var(--danger)}
+        .empty-state{text-align:center;padding:48px;color:var(--text-secondary)}
+        .edit-btn{background:var(--surface-elevated);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px;transition:all .2s}
+        .edit-btn:hover{background:var(--primary);color:white}
+        .login-box{background:var(--surface);border-radius:var(--radius);padding:40px;box-shadow:var(--shadow-lg);max-width:400px;margin:100px auto;text-align:center}
+        .login-box h2{font-size:24px;margin-bottom:24px}
+        .login-box input{width:100%;padding:12px 16px;border:2px solid var(--border);border-radius:8px;font-size:16px;margin-bottom:16px}
+        .login-box button{width:100%;padding:14px;background:var(--primary);color:white;border:none;border-radius:8px;font-size:16px;font-weight:600;cursor:pointer}
+        @media(max-width:768px){.container{padding:12px}.header{flex-direction:column;gap:12px}.toolbar{flex-direction:column}.images-grid{grid-template-columns:1fr}.admin-tabs{flex-direction:column}}
+    </style>
+</head>
+<body>
+<div id="loadingScreen"><div class="spinner"></div><div style="color:#6B7280;font-size:14px">正在加载...</div></div>
+
+<!-- 登录页 -->
+<div class="login-view active" id="loginView">
+    <div class="login-box">
+        <div class="logo-icon" style="margin:0 auto 20px">F</div>
+        <h2>飞书图片资源中心</h2>
+        <input type="password" id="adminPassword" placeholder="管理员密码">
+        <button onclick="adminLogin()">进入管理后台</button>
+    </div>
+</div>
+
+<div class="container" id="app" style="display:none">
+    <header class="header">
+        <div class="logo"><div class="logo-icon">F</div><span>飞书图片资源中心</span></div>
+        <div class="user-info">
+            <div class="user-avatar" id="userAvatar">?</div>
+            <div><div class="user-name" id="userName">客户</div><span class="role-badge client" id="roleBadge">客户</span></div>
+        </div>
+    </header>
+
+    <!-- 客户端视图 -->
+    <div class="client-view active" id="clientView">
+        <div class="stats-grid">
+            <div class="stat-card"><div class="stat-icon">📁</div><div class="stat-value" id="totalImages">0</div><div class="stat-label">图片总数</div></div>
+            <div class="stat-card"><div class="stat-icon">📥</div><div class="stat-value" id="totalDownloads">0</div><div class="stat-label">总下载量</div></div>
+            <div class="stat-card"><div class="stat-icon">🌍</div><div class="stat-value" id="totalCountries">0</div><div class="stat-label">下载国家数</div></div>
+            <div class="stat-card"><div class="stat-icon">🎨</div><div class="stat-value" id="totalColors">0</div><div class="stat-label">颜色分类</div></div>
+        </div>
+        <div class="toolbar">
+            <div class="search-box"><input type="text" placeholder="搜索图片名称..." id="searchInput"></div>
+            <select class="filter-select" id="colorFilter"><option value="">全部颜色</option></select>
+            <select class="filter-select" id="themeFilter"><option value="">全部主题</option></select>
+        </div>
+        <div class="images-grid" id="imagesGrid"><div class="empty-state">正在加载...</div></div>
+    </div>
+
+    <!-- 管理端视图 -->
+    <div class="admin-view" id="adminView">
+        <div class="admin-tabs">
+            <button class="admin-tab active" data-tab="upload">📤 上传图片</button>
+            <button class="admin-tab" data-tab="records">📋 下载记录</button>
+            <button class="admin-tab" data-tab="manage">🖼️ 图片管理</button>
+        </div>
+        <div class="admin-panel active" id="uploadPanel">
+            <div class="upload-zone" id="uploadZone">
+                <div class="upload-icon">☁️</div>
+                <div class="upload-title">拖拽图片到此处上传</div>
+                <div class="upload-subtitle">支持 PNG、JPG、WebP 格式</div>
+                <input type="file" id="fileInput" accept="image/*" style="display:none">
+                <input type="text" id="uploadName" class="form-input" placeholder="图片名称" style="margin-bottom:12px">
+                <select id="uploadColor" class="filter-select" style="margin-bottom:12px;width:100%">
+                    <option value="红色">颜色: 红色</option><option value="蓝色">颜色: 蓝色</option><option value="绿色">颜色: 绿色</option><option value="黄色">颜色: 黄色</option><option value="紫色">颜色: 紫色</option><option value="橙色">颜色: 橙色</option><option value="黑色">颜色: 黑色</option><option value="白色">颜色: 白色</option>
+                </select>
+                <select id="uploadTheme" class="filter-select" style="margin-bottom:16px;width:100%">
+                    <option value="促销">主题: 促销</option><option value="节日">主题: 节日</option><option value="产品">主题: 产品</option><option value="品牌">主题: 品牌</option><option value="活动">主题: 活动</option>
+                </select>
+                <button class="upload-btn" onclick="document.getElementById('fileInput').click()">选择图片上传</button>
+            </div>
+        </div>
+        <div class="admin-panel" id="recordsPanel">
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead><tr><th>图片</th><th>下载人</th><th>上线时间</th><th>国家</th><th>时间</th></tr></thead>
+                    <tbody id="recordsTable"><tr><td colspan="5" class="empty-state">加载中...</td></tr></tbody>
+                </table>
+            </div>
+        </div>
+        <div class="admin-panel" id="managePanel">
+            <div class="images-grid" id="adminImagesGrid"></div>
+        </div>
+    </div>
+</div>
+
+<!-- 下载表单 -->
+<div class="modal-overlay" id="downloadModal">
+    <div class="modal">
+        <div class="modal-header"><div class="modal-title">填写下载信息</div><button class="modal-close" onclick="closeModal('downloadModal')">×</button></div>
+        <div class="modal-body">
+            <div class="form-group"><label class="form-label">下载人名称 *</label><input type="text" class="form-input" id="downloadName" placeholder="请输入您的姓名"></div>
+            <div class="form-group"><label class="form-label">活动上线时间 *</label><input type="date" class="form-input" id="downloadDate"></div>
+            <div class="form-group"><label class="form-label">所属国家 *</label>
+                <select class="form-input" id="downloadCountry">
+                    <option value="">选择国家</option>
+                    <option value="中国">中国</option><option value="美国">美国</option><option value="英国">英国</option><option value="法国">法国</option><option value="德国">德国</option><option value="日本">日本</option><option value="韩国">韩国</option><option value="澳大利亚">澳大利亚</option><option value="加拿大">加拿大</option><option value="巴西">巴西</option><option value="印度">印度</option><option value="新加坡">新加坡</option><option value="泰国">泰国</option><option value="马来西亚">马来西亚</option>
+                </select>
+            </div>
+            <input type="hidden" id="currentImageId"><input type="hidden" id="currentImageName"><input type="hidden" id="currentImageUrl">
+        </div>
+        <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('downloadModal')">取消</button><button class="btn btn-primary" onclick="submitDownload()">确认下载</button></div>
+    </div>
+</div>
+
+<!-- 编辑分类 -->
+<div class="modal-overlay" id="editModal">
+    <div class="modal">
+        <div class="modal-header"><div class="modal-title">设置分类</div><button class="modal-close" onclick="closeModal('editModal')">×</button></div>
+        <div class="modal-body">
+            <div class="form-group"><label class="form-label">图片名称</label><input type="text" class="form-input" id="editName"></div>
+            <div class="form-group"><label class="form-label">颜色分类</label><select class="form-input" id="editColor"><option value="红色">红色</option><option value="蓝色">蓝色</option><option value="绿色">绿色</option><option value="黄色">黄色</option><option value="紫色">紫色</option></select></div>
+            <div class="form-group"><label class="form-label">主题分类</label><select class="form-input" id="editTheme"><option value="促销">促销</option><option value="节日">节日</option><option value="产品">产品</option><option value="品牌">品牌</option><option value="活动">活动</option></select></div>
+            <input type="hidden" id="editRecordId">
+        </div>
+        <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('editModal')">取消</button><button class="btn btn-primary" onclick="saveEdit()">保存</button></div>
+    </div>
+</div>
+
+<div class="toast" id="toast"><span id="toastIcon"></span><span id="toastMessage"></span></div>
+
+<script>
+const API = '';
+let allImages = [];
+let allRecords = [];
+let isAdmin = false;
+
+async function adminLogin() {
+    const pwd = document.getElementById('adminPassword').value;
+    const res = await fetch(API + '/api/admin-login', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({password: pwd})
+    });
+    const data = await res.json();
+    if (data.success) {
+        isAdmin = true;
+        document.getElementById('loginView').classList.remove('active');
+        document.getElementById('app').style.display = 'block';
+        document.getElementById('adminView').classList.add('active');
+        document.getElementById('roleBadge').textContent = '管理员';
+        document.getElementById('roleBadge').className = 'role-badge admin';
+        document.getElementById('userAvatar').textContent = '管';
+        document.getElementById('userName').textContent = '管理员';
+        loadData();
+    } else {
+        showToast('密码错误', 'error');
+    }
+}
+
+async function loadData() {
+    try {
+        const [imgRes, recRes] = await Promise.all([
+            fetch(API + '/api/images').then(r => r.json()),
+            fetch(API + '/api/records').then(r => r.json())
+        ]);
+        allImages = imgRes.success ? imgRes.data : [];
+        allRecords = recRes.success ? recRes.data : [];
+        renderAll();
+    } catch(e) { showToast('加载失败', 'error'); }
+}
+
+function renderAll() {
+    renderStats();
+    renderImages();
+    renderAdminImages();
+    renderRecords();
+    updateFilters();
+}
+
+function renderStats() {
+    document.getElementById('totalImages').textContent = allImages.length;
+    document.getElementById('totalDownloads').textContent = allImages.reduce((s,i)=>s+i.downloads,0);
+    const cs = new Set();
+    allImages.forEach(i=>i.countries.forEach(c=>cs.add(c)));
+    document.getElementById('totalCountries').textContent = cs.size;
+    const colors = new Set(allImages.map(i=>i.color).filter(Boolean));
+    document.getElementById('totalColors').textContent = colors.size;
+}
+
+function updateFilters() {
+    const colors = [...new Set(allImages.map(i=>i.color).filter(Boolean))];
+    const themes = [...new Set(allImages.map(i=>i.theme).filter(Boolean))];
+    document.getElementById('colorFilter').innerHTML = '<option value="">全部颜色</option>' + colors.map(c=>`<option value="${c}">${c}</option>`).join('');
+    document.getElementById('themeFilter').innerHTML = '<option value="">全部主题</option>' + themes.map(t=>`<option value="${t}">${t}</option>`).join('');
+}
+
+function filterImages() {
+    const s = document.getElementById('searchInput').value.toLowerCase();
+    const c = document.getElementById('colorFilter').value;
+    const t = document.getElementById('themeFilter').value;
+    renderImages(allImages.filter(i=>i.name.toLowerCase().includes(s) && (!c||i.color===c) && (!t||i.theme===t)));
+}
+
+function renderImages(imgs) {
+    const g = document.getElementById('imagesGrid');
+    if (!imgs.length) { g.innerHTML = '<div class="empty-state">暂无图片</div>'; return; }
+    g.innerHTML = imgs.map(i=>`<div class="image-card"><div class="image-preview"><img src="${i.url}" alt="${i.name}" onerror="this.style.display='none'"><div class="image-overlay"><button class="dl-btn" onclick="openDownloadModal('${i.id}','${esc(i.name)}','${esc(i.url)}')">⬇️ 下载</button></div></div><div class="image-info"><div class="image-title">${esc(i.name)}</div><div class="image-tags">${i.color?`<span class="tag color">${i.color}</span>`:''}${i.theme?`<span class="tag theme">${i.theme}</span>`:''}</div><div class="image-stats"><span>📥 ${i.downloads}</span><span class="country-badges">${i.countries.map(c=>`<span class="country-badge">${c}</span>`).join('')}</span></div></div></div>`).join('');
+}
+
+function renderAdminImages() {
+    const g = document.getElementById('adminImagesGrid');
+    g.innerHTML = allImages.map(i=>`<div class="image-card"><div class="image-preview"><img src="${i.url}" alt="${i.name}" onerror="this.style.display='none'"></div><div class="image-info"><div class="image-title">${esc(i.name)}</div><div class="image-tags">${i.color?`<span class="tag color">${i.color}</span>`:''}${i.theme?`<span class="tag theme">${i.theme}</span>`:''}</div><button class="edit-btn" onclick="openEditModal('${i.id}')">✏️ 设置</button></div></div>`).join('');
+}
+
+function renderRecords() {
+    const t = document.getElementById('recordsTable');
+    if (!allRecords.length) { t.innerHTML = '<tr><td colspan="5" class="empty-state">暂无记录</td></tr>'; return; }
+    t.innerHTML = allRecords.map(r=>`<tr><td>${esc(r.imageName)}</td><td>${esc(r.name)}</td><td>${r.date}</td><td>${r.country}</td><td>${r.downloadTime}</td></tr>`).join('');
+}
+
+function openDownloadModal(id, name, url) {
+    document.getElementById('currentImageId').value = id;
+    document.getElementById('currentImageName').value = name;
+    document.getElementById('currentImageUrl').value = url;
+    document.getElementById('downloadName').value = '';
+    document.getElementById('downloadDate').value = '';
+    document.getElementById('downloadCountry').value = '';
+    document.getElementById('downloadModal').classList.add('active');
+}
+
+async function submitDownload() {
+    const name = document.getElementById('downloadName').value.trim();
+    const date = document.getElementById('downloadDate').value;
+    const country = document.getElementById('downloadCountry').value;
+    const id = document.getElementById('currentImageId').value;
+    const imgName = document.getElementById('currentImageName').value;
+    const imgUrl = document.getElementById('currentImageUrl').value;
+    if (!name || !date || !country) { showToast('请填写完整信息', 'error'); return; }
+    
+    try {
+        await fetch(API + '/api/download', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({imageId:id, imageName:imgName, name, date, country})
+        });
+        // 触发下载
+        const a = document.createElement('a');
+        a.href = imgUrl;
+        a.download = imgName;
+        a.target = '_blank';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        
+        closeModal('downloadModal');
+        showToast('下载成功！', 'success');
+        loadData();
+    } catch(e) { showToast('提交失败', 'error'); }
+}
+
+function openEditModal(id) {
+    const img = allImages.find(i=>i.id===id);
+    if(!img) return;
+    document.getElementById('editRecordId').value = id;
+    document.getElementById('editName').value = img.name;
+    document.getElementById('editColor').value = img.color;
+    document.getElementById('editTheme').value = img.theme;
+    document.getElementById('editModal').classList.add('active');
+}
+
+async function saveEdit() {
+    const id = document.getElementById('editRecordId').value;
+    const name = document.getElementById('editName').value;
+    const color = document.getElementById('editColor').value;
+    const theme = document.getElementById('editTheme').value;
+    try {
+        await fetch(API + '/api/images/'+id, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name, color, theme})
+        });
+        closeModal('editModal');
+        showToast('保存成功', 'success');
+        loadData();
+    } catch(e) { showToast('保存失败', 'error'); }
+}
+
+async function handleFiles(files) {
+    const file = files[0];
+    if (!file || !file.type.startsWith('image/')) { showToast('请选择图片', 'error'); return; }
+    const name = document.getElementById('uploadName').value || file.name.replace(/\.[^/.]+$/,'');
+    const color = document.getElementById('uploadColor').value;
+    const theme = document.getElementById('uploadTheme').value;
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('name', name);
+    formData.append('color', color);
+    formData.append('theme', theme);
+    try {
+        await fetch(API + '/api/upload', { method:'POST', body:formData });
+        showToast('上传成功', 'success');
+        loadData();
+    } catch(e) { showToast('上传失败', 'error'); }
+}
+
+function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+function showToast(msg, type) {
+    const t = document.getElementById('toast');
+    document.getElementById('toastIcon').textContent = type==='success'?'✅':'❌';
+    document.getElementById('toastMessage').textContent = msg;
+    t.className = 'toast show ' + type;
+    setTimeout(()=>t.classList.remove('show'),3000);
+}
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+document.querySelectorAll('.admin-tab').forEach(tab=>tab.onclick=()=>{
+    document.querySelectorAll('.admin-tab').forEach(t=>t.classList.remove('active'));
+    document.querySelectorAll('.admin-panel').forEach(p=>p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById(tab.dataset.tab+'Panel').classList.add('active');
+});
+document.getElementById('searchInput').oninput = filterImages;
+document.getElementById('colorFilter').onchange = filterImages;
+document.getElementById('themeFilter').onchange = filterImages;
+document.getElementById('uploadZone').ondragover = e=>{e.preventDefault();document.getElementById('uploadZone').style.borderColor='var(--primary)'};
+document.getElementById('uploadZone').ondragleave = ()=>{document.getElementById('uploadZone').style.borderColor='var(--border)'};
+document.getElementById('uploadZone').ondrop = e=>{e.preventDefault();document.getElementById('uploadZone').style.borderColor='var(--border)';handleFiles(e.dataTransfer.files)};
+document.getElementById('fileInput').onchange = e=>handleFiles(e.target.files);
+
+// 默认显示客户视图
+document.getElementById('loadingScreen').style.display = 'none';
+document.getElementById('loginView').classList.add('active');
+loadData();
+</script>
+</body>
+</html>
