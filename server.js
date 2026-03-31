@@ -55,17 +55,14 @@ app.get('/api/images', async (req, res) => {
 
         const images = allItems.map(item => {
             const f = item.fields;
-            // 预览图：优先「预览图URL」，其次「图片URL」
-            let previewUrl = '';
-            if (f['预览图URL'] && typeof f['预览图URL'] === 'string') previewUrl = f['预览图URL'];
-            else if (f['图片URL'] && typeof f['图片URL'] === 'string') previewUrl = f['图片URL'];
-            else if (Array.isArray(f['图片URL']) && f['图片URL'].length > 0) previewUrl = f['图片URL'][0].url || f['图片URL'][0].tmp_url || '';
-            
-            // 设计图URL
-            let designUrl = '';
-            if (f['设计图URL'] && typeof f['设计图URL'] === 'string') designUrl = f['设计图URL'];
-            else if (f['图片URL'] && typeof f['图片URL'] === 'string') designUrl = f['图片URL'];
-
+            // 获取附件字段的URL
+            function getAttachmentUrl(fieldValue) {
+                if (!fieldValue || !Array.isArray(fieldValue) || fieldValue.length === 0) return '';
+                const att = fieldValue[0];
+                return att.url || att.temp_url || att.download_url || '';
+            }
+            const previewUrl = getAttachmentUrl(f['预览图']) || getAttachmentUrl(f['图片URL']);
+            const designUrl = getAttachmentUrl(f['设计图']) || getAttachmentUrl(f['图片URL']) || previewUrl;
             const downloads = parseInt(f['下载次数'] || 0) || 0;
             let countries = [];
             if (f['已下载国家']) countries = String(f['已下载国家']).split(',').map(s => s.trim()).filter(Boolean);
@@ -90,7 +87,7 @@ app.get('/api/images', async (req, res) => {
     }
 });
 
-// ── 代理下载设计图（750×700原文件）──
+// ── 代理下载设计图 ──
 app.get('/api/download-design/:id', async (req, res) => {
     try {
         const { id } = req.params;
@@ -101,22 +98,25 @@ app.get('/api/download-design/:id', async (req, res) => {
             { headers: { Authorization: `Bearer ${token}` } }
         );
         const f = imgRes.data.data.record.fields;
-        let imageUrl = f['设计图URL'] || f['图片URL'] || '';
-        let imageName = f['图片名称'] || '设计图';
-
-        // 提取飞书file_token
-        const match = imageUrl.match(/file\/([^/?#]+)/) || imageUrl.match(/media\/([^/?#]+)/) || imageUrl.match(/box\/([^/?#]+)/);
-        const fileToken = match ? match[1] : '';
-
-        if (fileToken && imageUrl.includes('feishu.cn')) {
-            imageUrl = `https://internal-api-drive-stream.feishu.cn/space/api/box/stream/download/v2/box/${fileToken}/?height=5120&width=2880&pwd=&x-tt-disable=1`;
+        let imageUrl = '';
+        // 优先设计图，其次预览图
+        if (f['设计图'] && Array.isArray(f['设计图']) && f['设计图'].length > 0) {
+            imageUrl = f['设计图'][0].url || f['设计图'][0].temp_url || '';
         }
+        if (!imageUrl && f['预览图'] && Array.isArray(f['预览图']) && f['预览图'].length > 0) {
+            imageUrl = f['预览图'][0].url || f['预览图'][0].temp_url || '';
+        }
+        if (!imageUrl && f['图片URL'] && Array.isArray(f['图片URL']) && f['图片URL'].length > 0) {
+            imageUrl = f['图片URL'][0].url || f['图片URL'][0].temp_url || '';
+        }
+        let imageName = f['图片名称'] || '设计图';
 
         if (!imageUrl) return res.status(404).send('设计图不存在');
 
+        // 代理下载
         const imgResponse = await axios.get(imageUrl, {
             responseType: 'arraybuffer',
-            headers: { 'Authorization': `Bearer ${token}`, 'User-Agent': 'Mozilla/5.0' },
+            headers: { 'User-Agent': 'Mozilla/5.0' },
             maxRedirects: 5
         });
 
@@ -198,7 +198,7 @@ app.post('/api/download', async (req, res) => {
     }
 });
 
-// ── 上传图片（预览图+设计图）──
+// ── 上传图片（预览图+设计图，存为飞书附件）──
 app.post('/api/upload', upload.fields([{ name: 'previewFile', maxCount: 1 }, { name: 'designFile', maxCount: 1 }]), async (req, res) => {
     try {
         const token = await getTenantToken();
@@ -208,42 +208,36 @@ app.post('/api/upload', upload.fields([{ name: 'previewFile', maxCount: 1 }, { n
 
         if (!previewFile && !designFile) return res.status(400).json({ success: false, error: '至少需要上传一张图片' });
 
-        let previewUrl = '', designUrl = '';
-
-        // 上传文件到飞书云盘获取CDN链接
-        async function uploadToFeishu(file, fname) {
-            if (!file) return '';
+        // 上传文件到飞书云盘
+        async function uploadToFeishu(file) {
+            if (!file) return null;
             const formData = new FormData();
             formData.append('file_name', file.originalname);
             formData.append('parent_type', 'bitable_file');
             formData.append('parent_node', CONFIG.BITABLE_IMAGES_TOKEN);
             formData.append('size', file.size.toString());
             formData.append('file', file.buffer, { filename: file.originalname, contentType: file.mimetype });
+
             const upRes = await axios.post('https://open.feishu.cn/open-apis/drive/v1/medias/upload_all', formData, {
                 headers: { Authorization: `Bearer ${token}`, ...formData.getHeaders() }
             });
-            const fileToken = upRes.data.data?.file_token;
-            if (!fileToken) return '';
-            return `https://internal-api-drive-stream.feishu.cn/space/api/box/stream/download/v2/box/${fileToken}/?height=5120&width=2880&pwd=&x-tt-disable=1`;
+            return upRes.data.data?.file_token || null;
         }
 
-        previewUrl = await uploadToFeishu(previewFile, 'preview');
-        designUrl = await uploadToFeishu(designFile, 'design');
+        const previewToken = await uploadToFeishu(previewFile);
+        const designToken = await uploadToFeishu(designFile);
 
-        // 如果只有一个文件，预览和下载用同一个
-        if (!previewUrl && designUrl) previewUrl = designUrl;
-        if (!designUrl && previewUrl) designUrl = previewUrl;
-
+        // 构建字段
         const fields = {
             '图片名称': name || '未命名',
             '颜色': color || '',
             '主题': theme || '',
             '下载次数': '0'
         };
-        if (previewUrl) fields['预览图URL'] = previewUrl;
-        if (designUrl) fields['设计图URL'] = designUrl;
-        if (previewUrl && !designUrl) fields['图片URL'] = previewUrl;
-        else if (designUrl && !previewUrl) fields['图片URL'] = designUrl;
+        if (previewToken) fields['预览图'] = [{ file_token: previewToken }];
+        if (designToken) fields['设计图'] = [{ file_token: designToken }];
+        // 兼容旧的「图片URL」字段
+        if (!previewToken && !designToken && previewFile) fields['图片URL'] = previewFile.originalname;
 
         await axios.post(
             `https://open.feishu.cn/open-apis/bitable/v1/apps/${CONFIG.BITABLE_IMAGES_TOKEN}/tables/${CONFIG.TABLE_IMAGES}/records`,
