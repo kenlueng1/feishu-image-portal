@@ -53,16 +53,27 @@ app.get('/api/images', async (req, res) => {
             pageToken = data.has_more ? data.page_token : '';
         } while (pageToken);
 
+        // 把飞书原始URL转为代理URL格式
+        function proxyUrl(rawUrl) {
+            if (!rawUrl) return '';
+            const match = rawUrl.match(/medias\/([^/]+)/);
+            if (match) return `/api/img/${match[1]}`;
+            return rawUrl;
+        }
+        function getToken(rawUrl) {
+            if (!rawUrl) return '';
+            const match = rawUrl.match(/medias\/([^/]+)/);
+            return match ? match[1] : '';
+        }
+
         const images = allItems.map(item => {
             const f = item.fields;
-            // 获取附件字段的URL
             function getAttachmentUrl(fieldValue) {
                 if (!fieldValue || !Array.isArray(fieldValue) || fieldValue.length === 0) return '';
-                const att = fieldValue[0];
-                return att.url || att.temp_url || att.download_url || '';
+                return fieldValue[0].url || fieldValue[0].tmp_url || '';
             }
-            const previewUrl = getAttachmentUrl(f['预览图']) || getAttachmentUrl(f['图片URL']);
-            const designUrl = getAttachmentUrl(f['设计图']) || getAttachmentUrl(f['图片URL']) || previewUrl;
+            const rawPreview = getAttachmentUrl(f['预览图']) || getAttachmentUrl(f['图片URL']);
+            const rawDesign = getAttachmentUrl(f['设计图']) || rawPreview;
             const downloads = parseInt(f['下载次数'] || 0) || 0;
             let countries = [];
             if (f['已下载国家']) countries = String(f['已下载国家']).split(',').map(s => s.trim()).filter(Boolean);
@@ -70,9 +81,11 @@ app.get('/api/images', async (req, res) => {
             return {
                 id: item.record_id,
                 name: f['图片名称'] || '',
-                url: previewUrl || designUrl,
-                previewUrl,
-                designUrl,
+                url: proxyUrl(rawPreview) || proxyUrl(rawDesign),
+                previewUrl: proxyUrl(rawPreview),
+                designUrl: proxyUrl(rawDesign),
+                previewToken: getToken(rawPreview),
+                designToken: getToken(rawDesign),
                 color: f['颜色'] || '',
                 theme: f['主题'] || '',
                 downloads,
@@ -87,6 +100,34 @@ app.get('/api/images', async (req, res) => {
     }
 });
 
+// ── 图片代理（供前端img标签直接使用）──
+app.get('/api/img/:token', async (req, res) => {
+    try {
+        const { token: fileToken } = req.params;
+        const token = await getTenantToken();
+        const imageUrl = `https://open.feishu.cn/open-apis/drive/v1/medias/${fileToken}/download`;
+
+        const imgResponse = await axios.get(imageUrl, {
+            responseType: 'arraybuffer',
+            headers: { 'Authorization': `Bearer ${token}`, 'User-Agent': 'Mozilla/5.0' },
+            maxRedirects: 5,
+            timeout: 30000
+        });
+
+        const buffer = Buffer.from(imgResponse.data);
+        const contentType = imgResponse.headers['content-type'] || 'image/jpeg';
+        res.set({
+            'Content-Type': contentType,
+            'Cache-Control': 'public, max-age=3600',
+            'Access-Control-Allow-Origin': '*'
+        });
+        res.send(buffer);
+    } catch (err) {
+        console.error('图片代理失败:', err.message);
+        res.status(404).send('');
+    }
+});
+
 // ── 代理下载设计图 ──
 app.get('/api/download-design/:id', async (req, res) => {
     try {
@@ -98,34 +139,42 @@ app.get('/api/download-design/:id', async (req, res) => {
             { headers: { Authorization: `Bearer ${token}` } }
         );
         const f = imgRes.data.data.record.fields;
-        let imageUrl = '';
+        let imageUrl = '', contentType = 'image/jpeg', imageName = f['图片名称'] || '设计图';
+
         // 优先设计图，其次预览图
         if (f['设计图'] && Array.isArray(f['设计图']) && f['设计图'].length > 0) {
-            imageUrl = f['设计图'][0].url || f['设计图'][0].temp_url || '';
+            imageUrl = f['设计图'][0].url || f['设计图'][0].tmp_url || '';
         }
         if (!imageUrl && f['预览图'] && Array.isArray(f['预览图']) && f['预览图'].length > 0) {
-            imageUrl = f['预览图'][0].url || f['预览图'][0].temp_url || '';
+            imageUrl = f['预览图'][0].url || f['预览图'][0].tmp_url || '';
         }
         if (!imageUrl && f['图片URL'] && Array.isArray(f['图片URL']) && f['图片URL'].length > 0) {
-            imageUrl = f['图片URL'][0].url || f['图片URL'][0].temp_url || '';
+            imageUrl = f['图片URL'][0].url || f['图片URL'][0].tmp_url || '';
         }
-        let imageName = f['图片名称'] || '设计图';
 
         if (!imageUrl) return res.status(404).send('设计图不存在');
 
-        // 代理下载
-        const imgResponse = await axios.get(imageUrl, {
+        // 提取file_token
+        const match = imageUrl.match(/medias\/([^/]+)/);
+        const fileToken = match ? match[1] : '';
+
+        const proxyUrl = fileToken
+            ? `https://open.feishu.cn/open-apis/drive/v1/medias/${fileToken}/download`
+            : imageUrl;
+
+        const imgResponse = await axios.get(proxyUrl, {
             responseType: 'arraybuffer',
-            headers: { 'User-Agent': 'Mozilla/5.0' },
-            maxRedirects: 5
+            headers: { 'Authorization': `Bearer ${token}`, 'User-Agent': 'Mozilla/5.0' },
+            maxRedirects: 5,
+            timeout: 30000
         });
 
         const buffer = Buffer.from(imgResponse.data);
-        const contentType = imgResponse.headers['content-type'] || 'image/jpeg';
-        const ext = contentType.includes('png') ? '.png' : '.jpg';
+        const ct = imgResponse.headers['content-type'] || 'image/jpeg';
+        const ext = ct.includes('png') ? '.png' : '.jpg';
 
         res.set({
-            'Content-Type': contentType,
+            'Content-Type': ct,
             'Content-Disposition': `attachment; filename="${encodeURIComponent(imageName + ext)}"`,
             'Content-Length': buffer.length,
             'Cache-Control': 'no-cache'
