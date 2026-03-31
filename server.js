@@ -203,8 +203,8 @@ app.post('/api/upload', upload.fields([{ name: 'previewFile', maxCount: 1 }, { n
     try {
         const token = await getTenantToken();
         const { name, color, theme } = req.body;
-        const previewFile = req.files?.find(f => f.fieldname === 'previewFile');
-        const designFile = req.files?.find(f => f.fieldname === 'designFile');
+        const previewFile = req.files?.previewFile?.[0];
+        const designFile = req.files?.designFile?.[0];
 
         if (!previewFile && !designFile) return res.status(400).json({ success: false, error: '至少需要上传一张图片' });
 
