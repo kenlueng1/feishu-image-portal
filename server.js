@@ -7,7 +7,7 @@ const crypto = require('crypto');
 const path = require('path');
 
 const app = express();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
 app.use(cors());
 app.use(express.json());
@@ -21,6 +21,9 @@ const CONFIG = {
     BITABLE_RECORDS_TOKEN: process.env.BITABLE_RECORDS_TOKEN || 'JaC1b0c7UaBFr1sQvnCcEAUxnph',
     TABLE_RECORDS: process.env.TABLE_RECORDS || 'tblIIIZTH7SS1C2O',
     ADMIN_PASSWORD_HASH: crypto.createHash('sha256').update('a3481616244.').digest('hex'),
+    CLOUDINARY_CLOUD: process.env.CLOUDINARY_CLOUD || 'dzyvenvyt',
+    CLOUDINARY_KEY: process.env.CLOUDINARY_KEY || '233142572993625',
+    CLOUDINARY_SECRET: process.env.CLOUDINARY_SECRET || 'CxfOYSwyt3E7K-OwzLRSFHFjzww',
 };
 
 let tokenCache = { token: null, expiresAt: 0 };
@@ -33,6 +36,26 @@ async function getTenantToken() {
     tokenCache.token = res.data.tenant_access_token;
     tokenCache.expiresAt = Date.now() + res.data.expire * 1000;
     return tokenCache.token;
+}
+
+// ── 上传到 Cloudinary ──
+async function uploadToCloudinary(fileBuffer, mimetype, originalname) {
+    const ts = Math.floor(Date.now() / 1000).toString();
+    const sigStr = `timestamp=${ts}${CONFIG.CLOUDINARY_SECRET}`;
+    const signature = crypto.createHash('sha1').update(sigStr).digest('hex');
+
+    const formData = new FormData();
+    formData.append('file', fileBuffer, { filename: originalname, contentType: mimetype });
+    formData.append('api_key', CONFIG.CLOUDINARY_KEY);
+    formData.append('timestamp', ts);
+    formData.append('signature', signature);
+
+    const res = await axios.post(
+        `https://api.cloudinary.com/v1_1/${CONFIG.CLOUDINARY_CLOUD}/image/upload`,
+        formData,
+        { headers: formData.getHeaders(), timeout: 60000 }
+    );
+    return res.data.secure_url || '';
 }
 
 app.post('/api/admin-login', (req, res) => {
@@ -53,27 +76,11 @@ app.get('/api/images', async (req, res) => {
             pageToken = data.has_more ? data.page_token : '';
         } while (pageToken);
 
-        // 把飞书原始URL转为代理URL格式
-        function proxyUrl(rawUrl) {
-            if (!rawUrl) return '';
-            const match = rawUrl.match(/medias\/([^/]+)/);
-            if (match) return `/api/img/${match[1]}`;
-            return rawUrl;
-        }
-        function getToken(rawUrl) {
-            if (!rawUrl) return '';
-            const match = rawUrl.match(/medias\/([^/]+)/);
-            return match ? match[1] : '';
-        }
-
         const images = allItems.map(item => {
             const f = item.fields;
-            function getAttachmentUrl(fieldValue) {
-                if (!fieldValue || !Array.isArray(fieldValue) || fieldValue.length === 0) return '';
-                return fieldValue[0].url || fieldValue[0].tmp_url || '';
-            }
-            const rawPreview = getAttachmentUrl(f['预览图']) || getAttachmentUrl(f['图片URL']);
-            const rawDesign = getAttachmentUrl(f['设计图']) || rawPreview;
+            // 直接读文本字段存的 Cloudinary URL
+            const previewUrl = f['预览图URL'] || '';
+            const designUrl = f['设计图URL'] || previewUrl;
             const downloads = parseInt(f['下载次数'] || 0) || 0;
             let countries = [];
             if (f['已下载国家']) countries = String(f['已下载国家']).split(',').map(s => s.trim()).filter(Boolean);
@@ -81,11 +88,9 @@ app.get('/api/images', async (req, res) => {
             return {
                 id: item.record_id,
                 name: f['图片名称'] || '',
-                url: proxyUrl(rawPreview) || proxyUrl(rawDesign),
-                previewUrl: proxyUrl(rawPreview),
-                designUrl: proxyUrl(rawDesign),
-                previewToken: getToken(rawPreview),
-                designToken: getToken(rawDesign),
+                url: previewUrl || designUrl,
+                previewUrl,
+                designUrl,
                 color: f['颜色'] || '',
                 theme: f['主题'] || '',
                 downloads,
@@ -100,35 +105,7 @@ app.get('/api/images', async (req, res) => {
     }
 });
 
-// ── 图片代理（供前端img标签直接使用）──
-app.get('/api/img/:token', async (req, res) => {
-    try {
-        const { token: fileToken } = req.params;
-        const token = await getTenantToken();
-        const imageUrl = `https://open.feishu.cn/open-apis/drive/v1/medias/${fileToken}/download`;
-
-        const imgResponse = await axios.get(imageUrl, {
-            responseType: 'arraybuffer',
-            headers: { 'Authorization': `Bearer ${token}`, 'User-Agent': 'Mozilla/5.0' },
-            maxRedirects: 5,
-            timeout: 30000
-        });
-
-        const buffer = Buffer.from(imgResponse.data);
-        const contentType = imgResponse.headers['content-type'] || 'image/jpeg';
-        res.set({
-            'Content-Type': contentType,
-            'Cache-Control': 'public, max-age=3600',
-            'Access-Control-Allow-Origin': '*'
-        });
-        res.send(buffer);
-    } catch (err) {
-        console.error('图片代理失败:', err.message);
-        res.status(404).send('');
-    }
-});
-
-// ── 代理下载设计图 ──
+// ── 代理下载设计图（直接重定向到 Cloudinary URL）──
 app.get('/api/download-design/:id', async (req, res) => {
     try {
         const { id } = req.params;
@@ -139,32 +116,15 @@ app.get('/api/download-design/:id', async (req, res) => {
             { headers: { Authorization: `Bearer ${token}` } }
         );
         const f = imgRes.data.data.record.fields;
-        let imageUrl = '', contentType = 'image/jpeg', imageName = f['图片名称'] || '设计图';
+        const designUrl = f['设计图URL'] || f['预览图URL'] || '';
+        const imageName = f['图片名称'] || '设计图';
 
-        // 优先设计图，其次预览图
-        if (f['设计图'] && Array.isArray(f['设计图']) && f['设计图'].length > 0) {
-            imageUrl = f['设计图'][0].url || f['设计图'][0].tmp_url || '';
-        }
-        if (!imageUrl && f['预览图'] && Array.isArray(f['预览图']) && f['预览图'].length > 0) {
-            imageUrl = f['预览图'][0].url || f['预览图'][0].tmp_url || '';
-        }
-        if (!imageUrl && f['图片URL'] && Array.isArray(f['图片URL']) && f['图片URL'].length > 0) {
-            imageUrl = f['图片URL'][0].url || f['图片URL'][0].tmp_url || '';
-        }
+        if (!designUrl) return res.status(404).send('设计图不存在');
 
-        if (!imageUrl) return res.status(404).send('设计图不存在');
-
-        // 提取file_token
-        const match = imageUrl.match(/medias\/([^/]+)/);
-        const fileToken = match ? match[1] : '';
-
-        const proxyUrl = fileToken
-            ? `https://open.feishu.cn/open-apis/drive/v1/medias/${fileToken}/download`
-            : imageUrl;
-
-        const imgResponse = await axios.get(proxyUrl, {
+        // 代理下载，保留原文件名
+        const imgResponse = await axios.get(designUrl, {
             responseType: 'arraybuffer',
-            headers: { 'Authorization': `Bearer ${token}`, 'User-Agent': 'Mozilla/5.0' },
+            headers: { 'User-Agent': 'Mozilla/5.0' },
             maxRedirects: 5,
             timeout: 30000
         });
@@ -247,7 +207,7 @@ app.post('/api/download', async (req, res) => {
     }
 });
 
-// ── 上传图片（预览图+设计图，存为飞书附件）──
+// ── 上传图片（上传到 Cloudinary，URL 存飞书表格）──
 app.post('/api/upload', upload.fields([{ name: 'previewFile', maxCount: 1 }, { name: 'designFile', maxCount: 1 }]), async (req, res) => {
     try {
         const token = await getTenantToken();
@@ -257,36 +217,18 @@ app.post('/api/upload', upload.fields([{ name: 'previewFile', maxCount: 1 }, { n
 
         if (!previewFile && !designFile) return res.status(400).json({ success: false, error: '至少需要上传一张图片' });
 
-        // 上传文件到飞书云盘
-        async function uploadToFeishu(file) {
-            if (!file) return null;
-            const formData = new FormData();
-            formData.append('file_name', file.originalname);
-            formData.append('parent_type', 'bitable_file');
-            formData.append('parent_node', CONFIG.BITABLE_IMAGES_TOKEN);
-            formData.append('size', file.size.toString());
-            formData.append('file', file.buffer, { filename: file.originalname, contentType: file.mimetype });
+        let previewUrl = '', designUrl = '';
+        if (previewFile) previewUrl = await uploadToCloudinary(previewFile.buffer, previewFile.mimetype, previewFile.originalname);
+        if (designFile) designUrl = await uploadToCloudinary(designFile.buffer, designFile.mimetype, designFile.originalname);
 
-            const upRes = await axios.post('https://open.feishu.cn/open-apis/drive/v1/medias/upload_all', formData, {
-                headers: { Authorization: `Bearer ${token}`, ...formData.getHeaders() }
-            });
-            return upRes.data.data?.file_token || null;
-        }
-
-        const previewToken = await uploadToFeishu(previewFile);
-        const designToken = await uploadToFeishu(designFile);
-
-        // 构建字段
         const fields = {
             '图片名称': name || '未命名',
             '颜色': color || '',
             '主题': theme || '',
-            '下载次数': '0'
+            '下载次数': '0',
+            '预览图URL': previewUrl,
+            '设计图URL': designUrl || previewUrl,
         };
-        if (previewToken) fields['预览图'] = [{ file_token: previewToken }];
-        if (designToken) fields['设计图'] = [{ file_token: designToken }];
-        // 兼容旧的「图片URL」字段
-        if (!previewToken && !designToken && previewFile) fields['图片URL'] = previewFile.originalname;
 
         await axios.post(
             `https://open.feishu.cn/open-apis/bitable/v1/apps/${CONFIG.BITABLE_IMAGES_TOKEN}/tables/${CONFIG.TABLE_IMAGES}/records`,
@@ -294,7 +236,7 @@ app.post('/api/upload', upload.fields([{ name: 'previewFile', maxCount: 1 }, { n
             { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
         );
 
-        res.json({ success: true });
+        res.json({ success: true, previewUrl, designUrl });
     } catch (err) {
         console.error('上传失败:', err.response?.data || err.message);
         res.status(500).json({ success: false, error: err.message });
