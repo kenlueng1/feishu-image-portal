@@ -301,17 +301,18 @@ app.get('/api/settings', async (req, res) => {
 app.post('/api/settings', upload.single('avatar'), async (req, res) => {
     try {
         const token = await getTenantToken();
-        const { title } = req.body;
+        const title = req.body?.title || '';
         
         // 查找设置记录
         const listRes = await axios.get(
-            `https://open.feishu.cn/open-apis/bitable/v1/apps/${CONFIG.BITABLE_IMAGES_TOKEN}/tables/${CONFIG.TABLE_IMAGES}/records?filter=Equal("图片名称","__SYSTEM_SETTINGS__")`,
+            `https://open.feishu.cn/open-apis/bitable/v1/apps/${CONFIG.BITABLE_IMAGES_TOKEN}/tables/${CONFIG.TABLE_IMAGES}/records?page_size=100`,
             { headers: { Authorization: `Bearer ${token}` } }
         );
         const items = listRes.data.data?.items || [];
-        if (items.length === 0) return res.status(404).json({ success: false, error: '未找到设置记录' });
+        const settingsItem = items.find(i => i.fields['图片名称'] === '__SYSTEM_SETTINGS__');
+        if (!settingsItem) return res.status(404).json({ success: false, error: '未找到设置记录' });
         
-        const recordId = items[0].record_id;
+        const recordId = settingsItem.record_id;
         const fields = {};
         if (title) fields['主题'] = title;
         
@@ -319,6 +320,10 @@ app.post('/api/settings', upload.single('avatar'), async (req, res) => {
         if (req.file) {
             const avatarUrl = await uploadToCloudinary(req.file.buffer, req.file.mimetype, req.file.originalname);
             fields['设计图URL'] = avatarUrl;
+        }
+        
+        if (Object.keys(fields).length === 0) {
+            return res.json({ success: true, avatarUrl: '' });
         }
         
         await axios.put(
