@@ -461,11 +461,19 @@ async function submitDownload(){
     const imgName=document.getElementById('currentImageName').value;
     if(!name||!date||!country){showToast('请填写完整信息','error');return;}
     try{
-        await fetch(API+'/api/download',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({imageId:id,imageName:imgName,name,date,country})});
-        window.location.href=API+'/api/download-design/'+id;
+        const dlRes=await fetch(API+'/api/download',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({imageId:id,imageName:imgName,name,date,country})});
+        if(!dlRes.ok) throw new Error('记录失败');
+        // 用隐藏 <a> 触发下载，不跳转页面
+        const a=document.createElement('a');
+        a.href=API+'/api/download-design/'+id;
+        a.download='';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
         closeModal('downloadModal');
         showToast('下载成功！','success');
-        loadData();
+        // 等后端写入完成再刷新数据
+        setTimeout(()=>loadData(), 1500);
     }catch(e){showToast('提交失败','error');}
 }
 
