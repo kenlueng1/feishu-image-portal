@@ -164,7 +164,7 @@
                 </div>
                 <div class="form-group">
                     <label class="form-label">主题分类（输入后回车添加）</label>
-                    <input type="text" class="form-input" id="uploadThemeInput" placeholder="输入主题名称后回车" onkeydown="if(event.key==='Enter')addThemeTag()">
+                    <input type="text" class="form-input" id="uploadThemeInput" placeholder="输入主题名称（回车可添加多个）" onkeydown="if(event.key==='Enter')addThemeTag()">
                     <div class="form-input-tags" id="uploadThemeTags"></div>
                 </div>
                 <button class="btn btn-primary" id="uploadBtn" onclick="submitUpload()" style="width:100%;padding:14px" disabled>✅ 添加图片</button>
@@ -272,7 +272,7 @@
             <div class="form-group"><label class="form-label">图片名称</label><input type="text" class="form-input" id="editName"></div>
             <div class="form-group">
                 <label class="form-label">主题分类</label>
-                <input type="text" class="form-input" id="editThemeInput" placeholder="输入主题名称后回车" onkeydown="if(event.key==='Enter')addEditThemeTag()">
+                <input type="text" class="form-input" id="editThemeInput" placeholder="输入主题名称（回车可添加多个）" onkeydown="if(event.key==='Enter')addEditThemeTag()">
                 <div class="form-input-tags" id="editThemeTags"></div>
             </div>
             <input type="hidden" id="editRecordId">
@@ -416,6 +416,9 @@ function updateUploadBtn(){
 }
 async function submitUpload(){
     const name=document.getElementById('uploadName').value.trim();
+    // 把输入框里未回车的内容也一起保存
+    const pendingTheme=document.getElementById('uploadThemeInput').value.trim();
+    if(pendingTheme&&!uploadThemes.includes(pendingTheme))uploadThemes.push(pendingTheme);
     const theme=uploadThemes.join(',');
     const btn=document.getElementById('uploadBtn');
     if(!name){showToast('请填写图片名称','error');return;}
@@ -504,6 +507,9 @@ function renderEditThemeTags(){
 async function saveEdit(){
     const id=document.getElementById('editRecordId').value;
     const name=document.getElementById('editName').value;
+    // 把输入框里未回车的内容也一起保存
+    const pendingTheme=document.getElementById('editThemeInput').value.trim();
+    if(pendingTheme&&!editThemes.includes(pendingTheme))editThemes.push(pendingTheme);
     const theme=editThemes.join(',');
     try{
         await fetch(API+'/api/images/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,theme})});
