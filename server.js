@@ -94,7 +94,8 @@ app.get('/api/images', async (req, res) => {
                 color: f['颜色'] || '',
                 theme: f['主题'] || '',
                 downloads,
-                countries
+                countries,
+                uploadDate: f['上传时间'] || ''
             };
         }).filter(img => img.name);
 
@@ -286,6 +287,7 @@ app.post('/api/upload', upload.fields([{ name: 'previewFile', maxCount: 1 }, { n
         if (previewFile) previewUrl = await uploadToCloudinary(previewFile.buffer, previewFile.mimetype, previewFile.originalname);
         if (designFile) designUrl = await uploadToCloudinary(designFile.buffer, designFile.mimetype, designFile.originalname);
 
+        const today = new Date().toISOString().slice(0, 10);
         const fields = {
             '图片名称': name || '未命名',
             '颜色': color || '',
@@ -293,6 +295,7 @@ app.post('/api/upload', upload.fields([{ name: 'previewFile', maxCount: 1 }, { n
             '下载次数': '0',
             '预览图URL': previewUrl,
             '设计图URL': designUrl || previewUrl,
+            '上传时间': today,
         };
 
         await axios.post(

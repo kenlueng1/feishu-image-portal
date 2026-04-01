@@ -38,7 +38,11 @@
         .dl-btn{background:#fff;color:var(--primary);border:none;padding:10px 20px;border-radius:6px;font-weight:600;cursor:pointer;transition:all .2s;font-size:13px}
         .dl-btn:hover{background:var(--primary);color:#fff}
         .image-info{padding:14px}
-        .image-title{font-size:14px;font-weight:600;margin-bottom:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .image-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+        .image-date{font-size:11px;font-weight:500}
+        .image-date.recent{color:var(--danger)}
+        .image-date.old{color:var(--text-secondary)}
+        .image-title{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         .image-tags{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px}
         .tag{padding:2px 8px;border-radius:10px;font-size:11px;font-weight:500}
         .tag.theme{background:rgba(79,70,229,.1);color:var(--primary)}
@@ -323,7 +327,18 @@ async function loadData(retry=0){
         clearTimeout(tid);
         if(!res.ok) throw new Error('HTTP '+res.status);
         const data=await res.json();
-        allImages=data.success?data.data:[];
+        allImages=data.success?data.data.map(img=>{
+            // 计算上传时间是否在3天内
+            if(img.uploadDate){
+                const upload=new Date(img.uploadDate);
+                const now=new Date();
+                const days=(now-upload)/(1000*60*60*24);
+                img.isRecent=days<=3;
+            }else{
+                img.isRecent=false;
+            }
+            return img;
+        }):[];
         renderStats();renderImages(allImages);updateFilters();
         if(isAdmin)renderAdminImages();
     }catch(e){
@@ -368,7 +383,7 @@ function renderImages(imgs){
     const g=document.getElementById('imagesGrid');
     if(!imgs||!imgs.length){g.innerHTML='<div class="empty-state">暂无图片</div>';return;}
     imgs=[...imgs].sort((a,b)=>b.downloads-a.downloads);
-    g.innerHTML=imgs.map(i=>`<div class="image-card"><div class="image-preview"><img src="${esc(i.previewUrl||i.url)}" alt="${esc(i.name)}" onerror="this.src='https://picsum.photos/seed/${esc(i.id)}/250/250'"><div class="image-overlay"><button class="dl-btn" onclick="openDownloadModal('${esc(i.id)}','${esc(i.name)}')">⬇️ 下载设计图</button></div></div><div class="image-info"><div class="image-title">${esc(i.name)}</div><div class="image-tags">${i.theme?i.theme.split(',').map(t=>t.trim()).filter(Boolean).map(t=>`<span class="tag theme">${esc(t)}</span>`).join(''):''}</div><div class="image-stats">📥 ${i.downloads} · ${i.countries.length}个国家</div></div></div>`).join('');
+    g.innerHTML=imgs.map(i=>`<div class="image-card"><div class="image-preview"><img src="${esc(i.previewUrl||i.url)}" alt="${esc(i.name)}" onerror="this.src='https://picsum.photos/seed/${esc(i.id)}/250/250'"><div class="image-overlay"><button class="dl-btn" onclick="openDownloadModal('${esc(i.id)}','${esc(i.name)}')">⬇️ 下载设计图</button></div></div><div class="image-info"><div class="image-header"><div class="image-title">${esc(i.name)}</div><span class="image-date ${i.isRecent?'recent':'old'}">${esc(i.uploadDate||'')}</span></div><div class="image-tags">${i.theme?i.theme.split(',').map(t=>t.trim()).filter(Boolean).map(t=>`<span class="tag theme">${esc(t)}</span>`).join(''):''}</div><div class="image-stats">📥 ${i.downloads} · ${i.countries.length}个国家</div></div></div>`).join('');
 }
 function renderAdminImages(){
     const g=document.getElementById('adminImagesGrid');
