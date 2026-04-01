@@ -93,6 +93,10 @@
         .toast.show{display:flex}
         .toast.success{border-left:4px solid var(--success)}
         .toast.error{border-left:4px solid var(--danger)}
+        .sub-tabs{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap}
+        .sub-tab{padding:6px 14px;border:2px solid var(--border);border-radius:20px;cursor:pointer;font-size:13px;font-weight:500;background:var(--surface);transition:all .2s;white-space:nowrap}
+        .sub-tab.active{background:var(--primary);color:#fff;border-color:var(--primary)}
+        .sub-tab:hover:not(.active){border-color:var(--primary);color:var(--primary)}
         .empty-state{text-align:center;padding:48px;color:var(--text-secondary)}
         .edit-btn{background:var(--surface-elevated);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px;margin-right:6px}
         .edit-btn:hover{background:var(--primary);color:#fff}
@@ -173,10 +177,13 @@
 
         <!-- 下载记录 -->
         <div class="admin-panel" id="recordsPanel">
+            <div class="sub-tabs" id="countrySubTabs">
+                <button class="sub-tab active" data-country="">全部国家</button>
+            </div>
             <div class="table-wrap">
                 <table class="data-table">
-                    <thead><tr><th>图片名称</th><th>下载人</th><th>上线时间</th><th>国家</th><th>下载时间</th></tr></thead>
-                    <tbody id="recordsTable"><tr><td colspan="5" class="empty-state">加载中...</td></tr></tbody>
+                    <thead><tr><th>图片名称</th><th>下载人</th><th>上线时间</th><th>国家</th><th>下载时间</th><th>操作</th></tr></thead>
+                    <tbody id="recordsTable"><tr><td colspan="6" class="empty-state">加载中...</td></tr></tbody>
                 </table>
             </div>
         </div>
@@ -336,6 +343,7 @@ async function loadRecords(){
         const res=await fetch(API+'/api/records');
         const data=await res.json();
         allRecords=data.success?data.data:[];
+        updateCountrySubTabs();
         renderRecords();
     }catch(e){}
 }
@@ -359,16 +367,41 @@ function filterImages(){
 function renderImages(imgs){
     const g=document.getElementById('imagesGrid');
     if(!imgs||!imgs.length){g.innerHTML='<div class="empty-state">暂无图片</div>';return;}
+    imgs=[...imgs].sort((a,b)=>b.downloads-a.downloads);
     g.innerHTML=imgs.map(i=>`<div class="image-card"><div class="image-preview"><img src="${esc(i.previewUrl||i.url)}" alt="${esc(i.name)}" onerror="this.src='https://picsum.photos/seed/${esc(i.id)}/250/250'"><div class="image-overlay"><button class="dl-btn" onclick="openDownloadModal('${esc(i.id)}','${esc(i.name)}')">⬇️ 下载设计图</button></div></div><div class="image-info"><div class="image-title">${esc(i.name)}</div><div class="image-tags">${i.theme?i.theme.split(',').map(t=>t.trim()).filter(Boolean).map(t=>`<span class="tag theme">${esc(t)}</span>`).join(''):''}</div><div class="image-stats">📥 ${i.downloads} · ${i.countries.length}个国家</div></div></div>`).join('');
 }
 function renderAdminImages(){
     const g=document.getElementById('adminImagesGrid');
     g.innerHTML=allImages.map(i=>`<div class="image-card"><div class="image-preview"><img src="${esc(i.previewUrl||i.url)}" alt="${esc(i.name)}" onerror="this.src='https://picsum.photos/seed/${esc(i.id)}/250/250'"></div><div class="image-info"><div class="image-title">${esc(i.name)}</div><div class="image-tags">${i.theme?i.theme.split(',').map(t=>t.trim()).filter(Boolean).map(t=>`<span class="tag theme">${esc(t)}</span>`).join(''):''}</div><div style="margin-top:8px"><button class="edit-btn" onclick="openEditModal('${esc(i.id)}')">✏️ 编辑</button><button class="delete-btn" onclick="deleteImage('${esc(i.id)}')">🗑️ 删除</button></div></div></div>`).join('');
 }
+let currentCountryFilter='';
 function renderRecords(){
     const t=document.getElementById('recordsTable');
-    if(!allRecords.length){t.innerHTML='<tr><td colspan="5" class="empty-state">暂无记录</td></tr>';return;}
-    t.innerHTML=allRecords.map(r=>`<tr><td>${esc(r.imageName)}</td><td>${esc(r.name)}</td><td>${esc(r.date)}</td><td>${esc(r.country)}</td><td>${esc(r.downloadTime)}</td></tr>`).join('');
+    const filtered=currentCountryFilter?allRecords.filter(r=>r.country===currentCountryFilter):allRecords;
+    if(!filtered.length){t.innerHTML='<tr><td colspan="6" class="empty-state">暂无记录</td></tr>';return;}
+    t.innerHTML=filtered.map(r=>`<tr><td>${esc(r.imageName)}</td><td>${esc(r.name)}</td><td>${esc(r.date)}</td><td>${esc(r.country)}</td><td>${esc(r.downloadTime)}</td><td><button class="delete-btn" onclick="deleteRecord('${esc(r.id)}')">🗑️</button></td></tr>`).join('');
+}
+function updateCountrySubTabs(){
+    const countries=[...new Set(allRecords.map(r=>r.country).filter(Boolean))].sort();
+    const tabs=document.getElementById('countrySubTabs');
+    tabs.innerHTML='<button class="sub-tab active" data-country="">全部国家</button>'+
+        countries.map(c=>`<button class="sub-tab" data-country="${esc(c)}">${esc(c)}</button>`).join('');
+    tabs.querySelectorAll('.sub-tab').forEach(btn=>btn.onclick=()=>{
+        tabs.querySelectorAll('.sub-tab').forEach(b=>b.classList.remove('active'));
+        btn.classList.add('active');
+        currentCountryFilter=btn.dataset.country;
+        renderRecords();
+    });
+}
+async function deleteRecord(id){
+    if(!confirm('确定删除这条下载记录？'))return;
+    try{
+        await fetch(API+'/api/records/'+id,{method:'DELETE'});
+        allRecords=allRecords.filter(r=>r.id!==id);
+        updateCountrySubTabs();
+        renderRecords();
+        showToast('删除成功','success');
+    }catch(e){showToast('删除失败','error');}
 }
 
 // ── 主题标签管理 ──

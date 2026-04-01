@@ -170,6 +170,22 @@ app.get('/api/records', async (req, res) => {
     }
 });
 
+// ── 删除下载记录 ──
+app.delete('/api/records/:id', async (req, res) => {
+    try {
+        const token = await getTenantToken();
+        const { id } = req.params;
+        await axios.delete(
+            `https://open.feishu.cn/open-apis/bitable/v1/apps/${CONFIG.BITABLE_RECORDS_TOKEN}/tables/${CONFIG.TABLE_RECORDS}/records/${id}`,
+            { headers: { Authorization: `Bearer ${token}` } }
+        );
+        res.json({ success: true });
+    } catch (err) {
+        console.error('删除记录失败:', err.response?.data || err.message);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 // ── 提交下载记录 ──
 app.post('/api/download', async (req, res) => {
     try {
