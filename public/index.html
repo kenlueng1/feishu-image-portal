@@ -344,26 +344,26 @@ function renderStats(){
     document.getElementById('totalDownloads').textContent=allImages.reduce((s,i)=>s+i.downloads,0);
     const cs=new Set();allImages.forEach(i=>i.countries.forEach(c=>cs.add(c)));
     document.getElementById('totalCountries').textContent=cs.size;
-    const themes=new Set(allImages.map(i=>i.theme).filter(Boolean));
+    const themes=new Set(allImages.flatMap(i=>i.theme?i.theme.split(',').map(t=>t.trim()).filter(Boolean):[])); 
     document.getElementById('totalThemes').textContent=themes.size;
 }
 function updateFilters(){
-    const themes=[...new Set(allImages.map(i=>i.theme).filter(Boolean))];
+    const themes=[...new Set(allImages.flatMap(i=>i.theme?i.theme.split(',').map(t=>t.trim()).filter(Boolean):[])).values()].sort();
     document.getElementById('themeFilter').innerHTML='<option value="">全部主题</option>'+themes.map(t=>`<option value="${esc(t)}">${esc(t)}</option>`).join('');
 }
 function filterImages(){
     const s=document.getElementById('searchInput').value.toLowerCase();
     const t=document.getElementById('themeFilter').value;
-    renderImages(allImages.filter(i=>i.name.toLowerCase().includes(s)&&(!t||i.theme===t)));
+    renderImages(allImages.filter(i=>i.name.toLowerCase().includes(s)&&(!t||(i.theme&&i.theme.split(',').map(x=>x.trim()).includes(t)))));
 }
 function renderImages(imgs){
     const g=document.getElementById('imagesGrid');
     if(!imgs||!imgs.length){g.innerHTML='<div class="empty-state">暂无图片</div>';return;}
-    g.innerHTML=imgs.map(i=>`<div class="image-card"><div class="image-preview"><img src="${esc(i.previewUrl||i.url)}" alt="${esc(i.name)}" onerror="this.src='https://picsum.photos/seed/${esc(i.id)}/250/250'"><div class="image-overlay"><button class="dl-btn" onclick="openDownloadModal('${esc(i.id)}','${esc(i.name)}')">⬇️ 下载设计图</button></div></div><div class="image-info"><div class="image-title">${esc(i.name)}</div><div class="image-tags">${i.theme?`<span class="tag theme">${esc(i.theme)}</span>`:''}</div><div class="image-stats">📥 ${i.downloads} · ${i.countries.length}个国家</div></div></div>`).join('');
+    g.innerHTML=imgs.map(i=>`<div class="image-card"><div class="image-preview"><img src="${esc(i.previewUrl||i.url)}" alt="${esc(i.name)}" onerror="this.src='https://picsum.photos/seed/${esc(i.id)}/250/250'"><div class="image-overlay"><button class="dl-btn" onclick="openDownloadModal('${esc(i.id)}','${esc(i.name)}')">⬇️ 下载设计图</button></div></div><div class="image-info"><div class="image-title">${esc(i.name)}</div><div class="image-tags">${i.theme?i.theme.split(',').map(t=>t.trim()).filter(Boolean).map(t=>`<span class="tag theme">${esc(t)}</span>`).join(''):''}</div><div class="image-stats">📥 ${i.downloads} · ${i.countries.length}个国家</div></div></div>`).join('');
 }
 function renderAdminImages(){
     const g=document.getElementById('adminImagesGrid');
-    g.innerHTML=allImages.map(i=>`<div class="image-card"><div class="image-preview"><img src="${esc(i.previewUrl||i.url)}" alt="${esc(i.name)}" onerror="this.src='https://picsum.photos/seed/${esc(i.id)}/250/250'"></div><div class="image-info"><div class="image-title">${esc(i.name)}</div><div class="image-tags">${i.theme?`<span class="tag theme">${esc(i.theme)}</span>`:''}</div><div style="margin-top:8px"><button class="edit-btn" onclick="openEditModal('${esc(i.id)}')">✏️ 编辑</button><button class="delete-btn" onclick="deleteImage('${esc(i.id)}')">🗑️ 删除</button></div></div></div>`).join('');
+    g.innerHTML=allImages.map(i=>`<div class="image-card"><div class="image-preview"><img src="${esc(i.previewUrl||i.url)}" alt="${esc(i.name)}" onerror="this.src='https://picsum.photos/seed/${esc(i.id)}/250/250'"></div><div class="image-info"><div class="image-title">${esc(i.name)}</div><div class="image-tags">${i.theme?i.theme.split(',').map(t=>t.trim()).filter(Boolean).map(t=>`<span class="tag theme">${esc(t)}</span>`).join(''):''}</div><div style="margin-top:8px"><button class="edit-btn" onclick="openEditModal('${esc(i.id)}')">✏️ 编辑</button><button class="delete-btn" onclick="deleteImage('${esc(i.id)}')">🗑️ 删除</button></div></div></div>`).join('');
 }
 function renderRecords(){
     const t=document.getElementById('recordsTable');
