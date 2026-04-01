@@ -473,7 +473,7 @@ async function submitDownload(){
         closeModal('downloadModal');
         showToast('下载成功！','success');
         // 等后端写入完成再刷新数据
-        setTimeout(()=>loadData(), 1500);
+        setTimeout(()=>loadData(), 2500);
     }catch(e){showToast('提交失败','error');}
 }
 
