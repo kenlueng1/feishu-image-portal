@@ -282,19 +282,18 @@ app.delete('/api/images/:id', async (req, res) => {
 app.get('/api/settings', async (req, res) => {
     try {
         const token = await getTenantToken();
-        // 查找设置记录
         const listRes = await axios.get(
-            `https://open.feishu.cn/open-apis/bitable/v1/apps/${CONFIG.BITABLE_IMAGES_TOKEN}/tables/${CONFIG.TABLE_IMAGES}/records?filter=Equal("图片名称","__SYSTEM_SETTINGS__")`,
+            `https://open.feishu.cn/open-apis/bitable/v1/apps/${CONFIG.BITABLE_IMAGES_TOKEN}/tables/${CONFIG.TABLE_IMAGES}/records?page_size=100`,
             { headers: { Authorization: `Bearer ${token}` } }
         );
         const items = listRes.data.data?.items || [];
-        if (items.length === 0) return res.json({ success: true, title: '飞书图片资源中心', avatarUrl: '' });
-        
-        const f = items[0].fields;
-        res.json({ success: true, title: f['主题'] || '飞书图片资源中心', avatarUrl: f['设计图URL'] || '' });
+        const settingsItem = items.find(i => i.fields['图片名称'] === '__SYSTEM_SETTINGS__');
+        if (!settingsItem) return res.json({ success: true, title: 'BIGO DESIGN', avatarUrl: '' });
+        const f = settingsItem.fields;
+        res.json({ success: true, title: f['主题'] || 'BIGO DESIGN', avatarUrl: f['设计图URL'] || '' });
     } catch (err) {
         console.error('获取设置失败:', err.message);
-        res.json({ success: true, title: '飞书图片资源中心', avatarUrl: '' });
+        res.json({ success: true, title: 'BIGO DESIGN', avatarUrl: '' });
     }
 });
 
