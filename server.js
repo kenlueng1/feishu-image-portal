@@ -175,10 +175,59 @@ app.delete('/api/records/:id', async (req, res) => {
     try {
         const token = await getTenantToken();
         const { id } = req.params;
+        
+        // 先查这条记录的图片名称和国家
+        const recordRes = await axios.get(
+            `https://open.feishu.cn/open-apis/bitable/v1/apps/${CONFIG.BITABLE_RECORDS_TOKEN}/tables/${CONFIG.TABLE_RECORDS}/records/${id}`,
+            { headers: { Authorization: `Bearer ${token}` } }
+        );
+        const recordFields = recordRes.data.data?.record?.fields || {};
+        const imageName = recordFields['图片名称'];
+        const country = recordFields['所属国家'];
+        
+        // 删除记录
         await axios.delete(
             `https://open.feishu.cn/open-apis/bitable/v1/apps/${CONFIG.BITABLE_RECORDS_TOKEN}/tables/${CONFIG.TABLE_RECORDS}/records/${id}`,
             { headers: { Authorization: `Bearer ${token}` } }
         );
+        
+        // 更新图片库：下载次数减1，检查是否需要移除国家
+        if (imageName) {
+            try {
+                // 查图片库记录
+                const imgListRes = await axios.get(
+                    `https://open.feishu.cn/open-apis/bitable/v1/apps/${CONFIG.BITABLE_IMAGES_TOKEN}/tables/${CONFIG.TABLE_IMAGES}/records?page_size=100`,
+                    { headers: { Authorization: `Bearer ${token}` } }
+                );
+                const imgItem = (imgListRes.data.data?.items || []).find(i => i.fields['图片名称'] === imageName);
+                if (imgItem) {
+                    const f = imgItem.fields;
+                    const currentDownloads = Math.max(0, parseInt(f['下载次数'] || 0) - 1);
+                    let currentCountries = (f['已下载国家'] || '').split(',').map(s => s.trim()).filter(Boolean);
+                    
+                    // 检查该国家还有没有其他下载记录
+                    if (country && currentCountries.includes(country)) {
+                        const otherRecordsRes = await axios.get(
+                            `https://open.feishu.cn/open-apis/bitable/v1/apps/${CONFIG.BITABLE_RECORDS_TOKEN}/tables/${CONFIG.TABLE_RECORDS}/records?page_size=100`,
+                            { headers: { Authorization: `Bearer ${token}` } }
+                        );
+                        const otherRecords = (otherRecordsRes.data.data?.items || []).filter(
+                            r => r.fields['图片名称'] === imageName && r.fields['所属国家'] === country
+                        );
+                        if (otherRecords.length === 0) {
+                            currentCountries = currentCountries.filter(c => c !== country);
+                        }
+                    }
+                    
+                    await axios.put(
+                        `https://open.feishu.cn/open-apis/bitable/v1/apps/${CONFIG.BITABLE_IMAGES_TOKEN}/tables/${CONFIG.TABLE_IMAGES}/records/${imgItem.record_id}`,
+                        { fields: { '下载次数': String(currentDownloads), '已下载国家': currentCountries.join(',') } },
+                        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+                    );
+                }
+            } catch (e) { console.warn('更新图片下载次数失败:', e.message); }
+        }
+        
         res.json({ success: true });
     } catch (err) {
         console.error('删除记录失败:', err.response?.data || err.message);
